@@ -2,7 +2,7 @@
   "name": "xml-doc-color",
   "displayName": "XML Doc Color",
   "description": "Colorize XML documentation comments in C#, VB.NET, F#, Java, TypeScript, JavaScript, PHP and Kotlin",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "MindLated",
   "author": "MindLated",
   "homepage": "https://github.com/Sato-Isolated/xml-doc-color",

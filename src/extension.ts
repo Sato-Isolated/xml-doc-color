@@ -6,18 +6,8 @@ import { ColorPickerViewProvider } from './colorPickerView';
 export function activate(context: vscode.ExtensionContext): void {
     const provider = new XmlDocSemanticTokensProvider();
 
-    const selector: vscode.DocumentSelector = SUPPORTED_LANGUAGES.map(language => ({
-        language,
-        scheme: 'file',
-    }));
-
-    // Also match untitled documents (e.g. unsaved scratch files)
-    const selectorUntitled: vscode.DocumentSelector = SUPPORTED_LANGUAGES.map(language => ({
-        language,
-        scheme: 'untitled',
-    }));
-
-    const combined: vscode.DocumentSelector = [...(selector as vscode.DocumentFilter[]), ...(selectorUntitled as vscode.DocumentFilter[])];
+    // No scheme restriction — covers file, untitled, git (diff editor), vscode-diff, etc.
+    const combined: vscode.DocumentSelector = SUPPORTED_LANGUAGES.map(language => ({ language }));
 
     context.subscriptions.push(
         vscode.languages.registerDocumentSemanticTokensProvider(combined, provider, LEGEND),
