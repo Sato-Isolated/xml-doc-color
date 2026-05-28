@@ -4,6 +4,16 @@ All notable changes to the "xml-doc-color" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.2] - 2026-05-28
+
+### Changed
+
+- README rewritten for GitHub and VS Code Marketplace
+- Added MIT license
+- Publisher set to MindLated
+- Added `repository`, `homepage`, `bugs`, `galleryBanner`, and `icon` fields to package.json
+- Added categories: Themes, Programming Languages
+
 ## [0.0.1] - 2026-05-28
 
 ### Added
