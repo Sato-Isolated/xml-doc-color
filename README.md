@@ -62,17 +62,6 @@ Open the sidebar panel via the **XML Doc Color** icon in the Activity Bar, or ru
 
 ---
 
-## Bundled Themes
-
-Two optional themes are bundled for immediate, zero-config color control:
-
-- **XML Doc Color Dark** — optimized for dark environments
-- **XML Doc Color Light** — optimized for light environments
-
-Select them via *File → Preferences → Color Theme* (or `Ctrl+K Ctrl+T`).
-
----
-
 ## Settings
 
 | Setting | Type | Default | Description |
