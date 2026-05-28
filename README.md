@@ -1,7 +1,7 @@
 ﻿# XML Doc Color
 
-[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/MindLated.xml-doc-color?style=flat-square&label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=MindLated.xml-doc-color)
-[![VS Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/MindLated.xml-doc-color?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=MindLated.xml-doc-color)
+[![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-xml--doc--color-blue?style=flat-square&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=MindLated.xml-doc-color)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Sato-Isolated/xml-doc-color?style=flat-square)](https://github.com/Sato-Isolated/xml-doc-color)
 
 Bring your XML documentation comments to life. **XML Doc Color** uses semantic highlighting to give distinct colors to every part of a doc comment — tag names, delimiters, attributes, values, `@`-tags, prefixes, and plain text — across 8 languages.
