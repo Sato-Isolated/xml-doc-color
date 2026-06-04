@@ -4,6 +4,25 @@ All notable changes to the "xml-doc-color" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.4] - 2026-06-04
+
+### Added
+
+- New commands to toggle the extension, copy semantic token JSON, and open a theme customization snippet
+- Sidebar preset modes: Default, Dark, Light, and Reset to inherited theme
+- Onboarding hint when the color picker opens without a supported editor
+- New settings: `xmlDocColor.enabledLanguages`, `xmlDocColor.showStatusItem`, and `xmlDocColor.configurationTarget`
+
+### Changed
+
+- Sidebar now shows whether each token color is inherited or explicitly overridden
+- Parser is more conservative around inline generic syntax such as `List<T>`
+- Semantic token provider now uses a static token-type index map instead of repeated array lookups
+
+### Fixed
+
+- Added coverage for single-quoted XML attributes, larger documents, and untitled editor scenarios
+
 ## [0.0.3] - 2026-05-28
 
 ### Added

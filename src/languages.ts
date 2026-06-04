@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 export type DocStyle = 'xml' | 'atTag' | 'both';
 
 export interface PreviewLine {
@@ -442,4 +444,18 @@ export function getSidebarPreviewData(): SidebarPreviewData {
     });
 
     return { options, previews };
+}
+
+export function getEnabledLanguages(): readonly string[] {
+    const configured = vscode.workspace.getConfiguration('xmlDocColor').get<readonly string[]>(
+        'enabledLanguages',
+        SUPPORTED_LANGUAGES,
+    );
+
+    if (!configured || configured.length === 0) {
+        return [];
+    }
+
+    const normalized = configured.filter((language) => SUPPORTED_LANGUAGES.includes(language));
+    return normalized.length > 0 ? normalized : SUPPORTED_LANGUAGES;
 }

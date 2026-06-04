@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LANGUAGE_CONFIGS, LanguageConfig } from './languages';
+import { getEnabledLanguages, LANGUAGE_CONFIGS, LanguageConfig } from './languages';
 import { parseDocLine, TOKEN_TYPES, TokenTypeName } from './parser';
 
 /**
@@ -17,6 +17,14 @@ export const TOKEN_TYPES_ARRAY: TokenTypeName[] = [
 ];
 
 export const LEGEND = new vscode.SemanticTokensLegend(TOKEN_TYPES_ARRAY, []);
+
+const TOKEN_TYPE_TO_INDEX: Readonly<Record<TokenTypeName, number>> = TOKEN_TYPES_ARRAY.reduce(
+    (result, tokenType, index) => {
+        result[tokenType] = index;
+        return result;
+    },
+    {} as Record<TokenTypeName, number>,
+);
 
 export class XmlDocSemanticTokensProvider
     implements vscode.DocumentSemanticTokensProvider, vscode.DocumentRangeSemanticTokensProvider
@@ -42,7 +50,7 @@ export class XmlDocSemanticTokensProvider
             return emptyTokens();
         }
 
-        if (!isXmlDocColorEnabled()) {
+        if (!isXmlDocColorEnabled(document)) {
             return emptyTokens();
         }
 
@@ -91,15 +99,13 @@ export class XmlDocSemanticTokensProvider
             const prefixCol = leadingSpaces(match[0]);
             const prefixLen = match[0].trim().length;
             if (prefixLen > 0) {
-                const prefixIdx = TOKEN_TYPES_ARRAY.indexOf(TOKEN_TYPES.xmlDocLinePrefix);
-                builder.push(li, prefixCol, prefixLen, prefixIdx, 0);
+                builder.push(li, prefixCol, prefixLen, TOKEN_TYPE_TO_INDEX[TOKEN_TYPES.xmlDocLinePrefix], 0);
             }
 
             if (!content.trim()) { continue; }
 
             for (const tok of parseDocLine(content)) {
-                const typeIdx = TOKEN_TYPES_ARRAY.indexOf(tok.type);
-                builder.push(li, contentCol + tok.start, tok.length, typeIdx, 0);
+                builder.push(li, contentCol + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
             }
         }
     }
@@ -119,7 +125,7 @@ export class XmlDocSemanticTokensProvider
     ): void {
         const scanEnd   = Math.min(range.end.line, document.lineCount - 1);
         const emitStart = range.start.line;
-        const prefixIdx = TOKEN_TYPES_ARRAY.indexOf(TOKEN_TYPES.xmlDocLinePrefix);
+        const prefixIdx = TOKEN_TYPE_TO_INDEX[TOKEN_TYPES.xmlDocLinePrefix];
 
         let inBlock = false;
 
@@ -203,8 +209,7 @@ export class XmlDocSemanticTokensProvider
     ): void {
         if (!content.trim()) { return; }
         for (const tok of parseDocLine(content)) {
-            const typeIdx = TOKEN_TYPES_ARRAY.indexOf(tok.type);
-            builder.push(lineIndex, colOffset + tok.start, tok.length, typeIdx, 0);
+            builder.push(lineIndex, colOffset + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
         }
     }
 
@@ -220,8 +225,12 @@ function leadingSpaces(s: string): number {
     return i;
 }
 
-function isXmlDocColorEnabled(): boolean {
-    return vscode.workspace.getConfiguration('xmlDocColor').get<boolean>('enabled', true);
+function isXmlDocColorEnabled(document: vscode.TextDocument): boolean {
+    const config = vscode.workspace.getConfiguration('xmlDocColor', document);
+    const enabled = config.get<boolean>('enabled', true);
+    const enabledLanguages = config.get<readonly string[]>('enabledLanguages', getEnabledLanguages());
+
+    return enabled && enabledLanguages.includes(document.languageId);
 }
 
 function emptyTokens(): vscode.SemanticTokens {

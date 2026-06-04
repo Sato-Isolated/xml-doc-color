@@ -8,7 +8,6 @@
     <title>XML Doc Color</title>
     <style nonce="{{nonce}}">
         :root {
-            --c-comment: #6A9955;
             --c-tagname: #4EC9B0;
             --c-delim: #6D8B6D;
             --c-attr: #9CDCFE;
@@ -19,14 +18,12 @@
         }
 
         body.vscode-light {
-            --c-comment: #008000;
             --c-lineprefix: #008000;
-            --c-text: #000000;
+            --c-text: #111827;
         }
 
         body.vscode-high-contrast,
         body.vscode-high-contrast-light {
-            --c-comment: var(--vscode-editor-foreground);
             --c-lineprefix: var(--vscode-editor-foreground);
             --c-text: var(--vscode-editor-foreground);
         }
@@ -51,12 +48,7 @@
             font: inherit;
         }
 
-        xml-doc-color-app {
-            display: flex;
-            min-height: 100vh;
-            flex-direction: column;
-        }
-
+        xml-doc-color-app,
         .panel {
             display: flex;
             min-height: 100vh;
@@ -65,7 +57,7 @@
 
         .content {
             flex: 1;
-            padding: 12px 12px 84px;
+            padding: 12px 12px 122px;
         }
 
         .panel-header {
@@ -75,7 +67,9 @@
             border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border, rgba(127,127,127,0.24)));
         }
 
-        .header-row {
+        .header-row,
+        .section-heading,
+        .subheading {
             display: flex;
             min-width: 0;
             align-items: center;
@@ -93,11 +87,8 @@
             font-weight: 650;
         }
 
-        .scope-badge {
-            max-width: 42%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        .scope-badge,
+        .source-badge {
             border: 1px solid var(--vscode-badge-background, rgba(127,127,127,0.35));
             border-radius: 999px;
             padding: 1px 7px;
@@ -111,14 +102,6 @@
             margin-top: 14px;
         }
 
-        .section-heading {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 7px;
-        }
-
         .section-title {
             margin: 0;
             color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
@@ -129,16 +112,24 @@
             opacity: 0.76;
         }
 
-        .section-note {
+        .section-note,
+        .helper-note,
+        .preset-note {
             margin: 0;
             color: var(--vscode-descriptionForeground, var(--vscode-foreground));
             font-size: 11px;
         }
 
-        language-selector {
-            display: block;
+        .helper-card {
+            display: grid;
+            gap: 6px;
+            border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25));
+            border-radius: 6px;
+            padding: 10px;
+            background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
         }
 
+        .select,
         .lang-select {
             width: 100%;
             height: 28px;
@@ -151,11 +142,17 @@
             cursor: pointer;
         }
 
-        .lang-select:focus {
+        .select:focus,
+        .lang-select:focus,
+        .hex-input:focus {
             border-color: var(--vscode-focusBorder, #007fd4);
         }
 
-        preview-panel {
+        preview-panel,
+        language-selector,
+        token-color-row,
+        action-bar,
+        preset-selector {
             display: block;
         }
 
@@ -178,43 +175,17 @@
             white-space: pre;
         }
 
-        .t-prefix {
-            color: var(--c-lineprefix);
-        }
-
-        .t-delim {
-            color: var(--c-delim);
-        }
-
-        .t-tagname {
-            color: var(--c-tagname);
-            font-weight: 650;
-        }
-
-        .t-attr {
-            color: var(--c-attr);
-        }
-
-        .t-value {
-            color: var(--c-value);
-        }
-
-        .t-attag {
-            color: var(--c-attag);
-            font-weight: 650;
-        }
-
-        .t-text {
-            color: var(--c-text);
-        }
+        .t-prefix { color: var(--c-lineprefix); }
+        .t-delim { color: var(--c-delim); }
+        .t-tagname { color: var(--c-tagname); font-weight: 650; }
+        .t-attr { color: var(--c-attr); }
+        .t-value { color: var(--c-value); }
+        .t-attag { color: var(--c-attag); font-weight: 650; }
+        .t-text { color: var(--c-text); }
 
         .token-list {
             display: grid;
             gap: 8px;
-        }
-
-        token-color-row {
-            display: block;
         }
 
         token-color-row[hidden] {
@@ -223,7 +194,7 @@
 
         .color-row {
             display: grid;
-            grid-template-columns: minmax(62px, 1fr) 18px minmax(66px, 74px) 30px;
+            grid-template-columns: minmax(68px, 1fr) auto 18px minmax(66px, 74px) 30px;
             align-items: center;
             gap: 7px;
             min-height: 32px;
@@ -234,7 +205,7 @@
         }
 
         .color-row.unused {
-            opacity: 0.54;
+            opacity: 0.56;
         }
 
         .color-label {
@@ -267,10 +238,6 @@
             text-transform: uppercase;
         }
 
-        .hex-input:focus {
-            border-color: var(--vscode-focusBorder, #007fd4);
-        }
-
         .hex-input.invalid {
             border-color: var(--vscode-inputValidation-errorBorder, #f48771);
             background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
@@ -295,13 +262,12 @@
             border-radius: 2px;
         }
 
-        action-bar {
+        .action-shell {
             position: fixed;
             right: 0;
             bottom: 0;
             left: 0;
             z-index: 1;
-            display: block;
             border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28));
             background: var(--vscode-sideBar-background, var(--vscode-editor-background));
         }
@@ -318,21 +284,13 @@
             font-size: 11px;
         }
 
-        .status-note.is-dirty {
-            color: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground)));
-        }
-
-        .status-note.is-invalid {
-            color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground, #f48771));
-        }
-
-        .status-note.is-applied {
-            color: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen, var(--vscode-descriptionForeground)));
-        }
+        .status-note.is-dirty { color: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground)); }
+        .status-note.is-invalid { color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground, #f48771)); }
+        .status-note.is-applied { color: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen)); }
 
         .buttons {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
         }
 
@@ -362,31 +320,28 @@
             background: var(--vscode-button-hoverBackground);
         }
 
-        .btn-reset {
+        .btn-secondary {
             color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
             background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
         }
 
-        .btn-reset:not(:disabled):hover {
+        .btn-secondary:not(:disabled):hover {
             background: var(--vscode-button-secondaryHoverBackground, rgba(127,127,127,0.3));
         }
 
-        @media (max-width: 260px) {
+        @media (max-width: 320px) {
             .content {
                 padding-right: 10px;
                 padding-left: 10px;
             }
 
             .color-row {
-                grid-template-columns: minmax(52px, 1fr) 16px minmax(62px, 70px) 28px;
+                grid-template-columns: minmax(58px, 1fr) auto 16px minmax(62px, 70px) 28px;
                 gap: 5px;
-                padding-right: 5px;
-                padding-left: 5px;
             }
 
-            .action-bar {
-                padding-right: 10px;
-                padding-left: 10px;
+            .buttons {
+                grid-template-columns: minmax(0, 1fr);
             }
         }
     </style>
@@ -430,6 +385,14 @@
             xmlDocText: '--c-text',
         };
 
+        const PRESET_LABELS = {
+            custom: 'Custom',
+            default: 'Default',
+            dark: 'Dark',
+            light: 'Light',
+            inherited: 'Inherited Theme',
+        };
+
         const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 
         function escapeHtml(value) {
@@ -448,6 +411,14 @@
             return result;
         }
 
+        function cloneOverrides(overrides) {
+            const result = {};
+            for (const key of TOKEN_KEYS) {
+                result[key] = Boolean(overrides && overrides[key]);
+            }
+            return result;
+        }
+
         function getPreview(language) {
             return SIDEBAR_PREVIEW_DATA.previews[language] || SIDEBAR_PREVIEW_DATA.previews['*'];
         }
@@ -461,14 +432,8 @@
         }
 
         class LanguageSelector extends HTMLElement {
-            connectedCallback() {
-                this.render();
-            }
-
-            set data(value) {
-                this._data = value;
-                this.render();
-            }
+            connectedCallback() { this.render(); }
+            set data(value) { this._data = value; this.render(); }
 
             render() {
                 const data = this._data || { language: '*', options: [] };
@@ -490,18 +455,44 @@
                 });
             }
         }
-
         customElements.define('language-selector', LanguageSelector);
 
-        class PreviewPanel extends HTMLElement {
-            connectedCallback() {
-                this.render();
-            }
+        class PresetSelector extends HTMLElement {
+            connectedCallback() { this.render(); }
+            set data(value) { this._data = value; this.render(); }
 
-            set preview(value) {
-                this._preview = value;
-                this.render();
+            render() {
+                const data = this._data || { mode: 'custom', note: '' };
+                this.innerHTML = `
+                    <div class="section">
+                        <div class="section-heading">
+                            <p class="section-title">Preset</p>
+                            <span class="scope-badge">${escapeHtml(PRESET_LABELS[data.mode] || 'Custom')}</span>
+                        </div>
+                        <select id="preset-select" class="select" aria-label="Color preset">
+                            <option value="custom"${data.mode === 'custom' ? ' selected' : ''}>Custom</option>
+                            <option value="default"${data.mode === 'default' ? ' selected' : ''}>Default</option>
+                            <option value="dark"${data.mode === 'dark' ? ' selected' : ''}>Dark</option>
+                            <option value="light"${data.mode === 'light' ? ' selected' : ''}>Light</option>
+                            <option value="inherited"${data.mode === 'inherited' ? ' selected' : ''}>Reset to inherited theme</option>
+                        </select>
+                        <p class="preset-note">${escapeHtml(data.note || '')}</p>
+                    </div>
+                `;
+
+                this.querySelector('select')?.addEventListener('change', (event) => {
+                    this.dispatchEvent(new CustomEvent('preset-change', {
+                        bubbles: true,
+                        detail: { mode: event.target.value },
+                    }));
+                });
             }
+        }
+        customElements.define('preset-selector', PresetSelector);
+
+        class PreviewPanel extends HTMLElement {
+            connectedCallback() { this.render(); }
+            set preview(value) { this._preview = value; this.render(); }
 
             render() {
                 const preview = this._preview || getPreview('*');
@@ -519,18 +510,11 @@
                 `;
             }
         }
-
         customElements.define('preview-panel', PreviewPanel);
 
         class TokenColorRow extends HTMLElement {
-            connectedCallback() {
-                this.render();
-            }
-
-            set config(value) {
-                this._config = value;
-                this.render();
-            }
+            connectedCallback() { this.render(); }
+            set config(value) { this._config = value; this.render(); }
 
             render() {
                 const config = this._config;
@@ -540,12 +524,14 @@
 
                 this.hidden = Boolean(config.hidden);
                 const isValid = HEX_RE.test(config.color);
+                const source = config.override ? 'Override' : 'Inherited';
                 this.innerHTML = `
-                    <div class="color-row${config.unused ? ' unused' : ''}" id="row-${escapeHtml(config.key)}" title="${config.unused ? 'Available for this language, but not shown in the selected preview.' : ''}">
+                    <div class="color-row${config.unused ? ' unused' : ''}" title="${config.unused ? 'Available for this language, but not shown in the selected preview.' : ''}">
                         <span class="color-label">${escapeHtml(config.label)}</span>
-                        <span class="swatch" id="sw-${escapeHtml(config.key)}" style="background: ${isValid ? escapeHtml(config.color) : 'transparent'}"></span>
-                        <input class="hex-input${isValid ? '' : ' invalid'}" id="hex-${escapeHtml(config.key)}" type="text" maxlength="7" spellcheck="false" value="${escapeHtml(config.color)}" aria-label="${escapeHtml(config.label)} hex color">
-                        <input class="color-native" id="pick-${escapeHtml(config.key)}" type="color" value="${isValid ? escapeHtml(config.color) : '#000000'}" aria-label="${escapeHtml(config.label)} color picker">
+                        <span class="source-badge">${source}</span>
+                        <span class="swatch" style="background: ${isValid ? escapeHtml(config.color) : 'transparent'}"></span>
+                        <input class="hex-input${isValid ? '' : ' invalid'}" type="text" maxlength="7" spellcheck="false" value="${escapeHtml(config.color)}" aria-label="${escapeHtml(config.label)} hex color">
+                        <input class="color-native" type="color" value="${isValid ? escapeHtml(config.color) : '#000000'}" aria-label="${escapeHtml(config.label)} color picker">
                     </div>
                 `;
 
@@ -599,27 +585,29 @@
                 }));
             }
         }
-
         customElements.define('token-color-row', TokenColorRow);
 
         class ActionBar extends HTMLElement {
-            connectedCallback() {
-                this.render();
-            }
-
-            set state(value) {
-                this._state = value;
-                this.render();
-            }
+            connectedCallback() { this.render(); }
+            set state(value) { this._state = value; this.render(); }
 
             render() {
-                const state = this._state || { status: 'Loading current colors...', statusClass: '', canApply: false, canReset: false };
+                const state = this._state || {
+                    status: 'Loading current colors...',
+                    statusClass: '',
+                    canApply: false,
+                    canReset: false,
+                    canCopy: false,
+                };
                 this.innerHTML = `
-                    <div class="action-bar">
-                        <div class="status-note ${escapeHtml(state.statusClass)}" id="status-note">${escapeHtml(state.status)}</div>
-                        <div class="buttons">
-                            <button class="btn-apply" id="btn-apply" type="button"${state.canApply ? '' : ' disabled'}>Apply</button>
-                            <button class="btn-reset" id="btn-reset" type="button"${state.canReset ? '' : ' disabled'}>Reset</button>
+                    <div class="action-shell">
+                        <div class="action-bar">
+                            <div class="status-note ${escapeHtml(state.statusClass)}">${escapeHtml(state.status)}</div>
+                            <div class="buttons">
+                                <button class="btn-apply" id="btn-apply" type="button"${state.canApply ? '' : ' disabled'}>Apply</button>
+                                <button class="btn-secondary" id="btn-copy" type="button"${state.canCopy ? '' : ' disabled'}>Copy JSON</button>
+                                <button class="btn-secondary" id="btn-reset" type="button"${state.canReset ? '' : ' disabled'}>Reset</button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -627,13 +615,14 @@
                 this.querySelector('#btn-apply')?.addEventListener('click', () => {
                     this.dispatchEvent(new CustomEvent('apply-colors', { bubbles: true }));
                 });
-
+                this.querySelector('#btn-copy')?.addEventListener('click', () => {
+                    this.dispatchEvent(new CustomEvent('copy-json', { bubbles: true }));
+                });
                 this.querySelector('#btn-reset')?.addEventListener('click', () => {
                     this.dispatchEvent(new CustomEvent('reset-colors', { bubbles: true }));
                 });
             }
         }
-
         customElements.define('action-bar', ActionBar);
 
         class XmlDocColorApp extends HTMLElement {
@@ -642,15 +631,22 @@
                 this.language = '*';
                 this.colors = {};
                 this.appliedColors = null;
+                this.overrides = {};
                 this.invalidKeys = new Set();
                 this.loaded = false;
+                this.supportedEditorActive = false;
+                this.activeEditorLanguage = '';
+                this.availablePresets = {};
+                this.presetMode = 'custom';
             }
 
             connectedCallback() {
                 this.render();
                 this.addEventListener('language-change', (event) => this.changeLanguage(event.detail.language));
+                this.addEventListener('preset-change', (event) => this.changePreset(event.detail.mode));
                 this.addEventListener('color-change', (event) => this.updateColor(event.detail));
                 this.addEventListener('apply-colors', () => this.applyColors());
+                this.addEventListener('copy-json', () => this.copyJson());
                 this.addEventListener('reset-colors', () => this.resetColors());
                 window.addEventListener('message', (event) => this.handleMessage(event.data));
                 vscode.postMessage({ type: 'ready' });
@@ -665,7 +661,12 @@
                 this.language = typeof message.language === 'string' ? message.language : '*';
                 this.colors = cloneColors(message.colors);
                 this.appliedColors = cloneColors(message.colors);
+                this.overrides = cloneOverrides(message.overrides);
+                this.supportedEditorActive = Boolean(message.supportedEditorActive);
+                this.activeEditorLanguage = message.activeEditorLanguage || '';
+                this.availablePresets = message.availablePresets || {};
                 this.invalidKeys.clear();
+                this.presetMode = 'custom';
                 this.applyPreviewColors();
                 this.render();
             }
@@ -679,8 +680,26 @@
                 this.render();
             }
 
+            changePreset(mode) {
+                this.presetMode = mode;
+                if (mode !== 'custom') {
+                    const presetColors = this.availablePresets[mode];
+                    if (presetColors) {
+                        this.colors = cloneColors(presetColors);
+                        const overrideValue = mode !== 'inherited';
+                        for (const key of TOKEN_KEYS) {
+                            this.overrides[key] = overrideValue;
+                        }
+                        this.applyPreviewColors();
+                    }
+                }
+                this.render();
+            }
+
             updateColor(detail) {
                 this.colors[detail.key] = detail.color;
+                this.overrides[detail.key] = true;
+                this.presetMode = 'custom';
                 if (detail.valid) {
                     this.invalidKeys.delete(detail.key);
                 } else {
@@ -693,13 +712,29 @@
                 if (!this.getActionState().canApply) {
                     return;
                 }
-                vscode.postMessage({ type: 'apply', colors: this.collectColors() });
+                vscode.postMessage({
+                    type: 'apply',
+                    colors: this.collectColors(),
+                    mode: this.presetMode,
+                });
+            }
+
+            copyJson() {
+                if (!this.loaded || this.invalidKeys.size > 0) {
+                    return;
+                }
+                vscode.postMessage({
+                    type: 'copyJson',
+                    colors: this.collectColors(),
+                    language: this.language,
+                });
             }
 
             resetColors() {
                 if (!this.loaded) {
                     return;
                 }
+                this.presetMode = 'custom';
                 vscode.postMessage({ type: 'reset' });
             }
 
@@ -723,7 +758,25 @@
                 if (!this.loaded || !this.appliedColors || this.invalidKeys.size > 0) {
                     return false;
                 }
+                if (this.presetMode === 'inherited') {
+                    return true;
+                }
                 return TOKEN_KEYS.some((key) => this.colors[key] !== this.appliedColors[key]);
+            }
+
+            getPresetNote() {
+                switch (this.presetMode) {
+                    case 'default':
+                        return 'Applies the built-in default palette.';
+                    case 'dark':
+                        return 'Uses the bundled dark-friendly palette.';
+                    case 'light':
+                        return 'Uses the bundled light-friendly palette.';
+                    case 'inherited':
+                        return 'Apply will remove XML Doc Color overrides for this scope.';
+                    default:
+                        return 'Custom keeps your edited token colors.';
+                }
             }
 
             getActionState() {
@@ -733,6 +786,7 @@
                         statusClass: '',
                         canApply: false,
                         canReset: false,
+                        canCopy: false,
                     };
                 }
 
@@ -742,15 +796,19 @@
                         statusClass: 'is-invalid',
                         canApply: false,
                         canReset: true,
+                        canCopy: false,
                     };
                 }
 
                 if (this.hasUnsavedChanges()) {
                     return {
-                        status: 'Unapplied changes for the selected scope.',
+                        status: this.presetMode === 'inherited'
+                            ? 'Apply will restore inherited theme colors for this scope.'
+                            : 'Unapplied changes for the selected scope.',
                         statusClass: 'is-dirty',
                         canApply: true,
                         canReset: true,
+                        canCopy: true,
                     };
                 }
 
@@ -759,6 +817,7 @@
                     statusClass: 'is-applied',
                     canApply: false,
                     canReset: true,
+                    canCopy: true,
                 };
             }
 
@@ -776,17 +835,34 @@
                                 <language-selector></language-selector>
                             </header>
 
+                            ${this.supportedEditorActive ? '' : `
+                                <section class="section">
+                                    <div class="helper-card">
+                                        <div class="subheading">
+                                            <p class="section-title">Onboarding</p>
+                                            <span class="scope-badge">Tip</span>
+                                        </div>
+                                        <p class="helper-note">Open a supported file to compare the preview with live semantic tokens in the editor.</p>
+                                        <p class="helper-note">Supported languages: C#, VB.NET, F#, Java, TypeScript, JavaScript, PHP, Kotlin.</p>
+                                    </div>
+                                </section>
+                            `}
+
+                            <preset-selector></preset-selector>
+
                             <section class="section" aria-label="Preview">
                                 <div class="section-heading">
                                     <p class="section-title">Preview</p>
+                                    <span class="scope-badge">${this.activeEditorLanguage ? escapeHtml(this.activeEditorLanguage) : 'Static'}</span>
                                 </div>
+                                <p class="section-note">Rows marked Inherited currently come from theme or fallback defaults rather than explicit overrides.</p>
                                 <preview-panel></preview-panel>
                             </section>
 
                             <section class="section" aria-label="Token colors">
                                 <div class="section-heading">
-                                    <p class="section-title" id="section-colors-title">${xmlOnly ? 'Tag & Attribute Colors' : 'Token Colors'}</p>
-                                    <p class="section-note" id="section-colors-note">${this.hasUnusedRows(preview, xmlOnly) ? 'Dimmed rows are available outside this preview.' : ''}</p>
+                                    <p class="section-title">${xmlOnly ? 'Tag & Attribute Colors' : 'Token Colors'}</p>
+                                    <p class="section-note">${this.hasUnusedRows(preview, xmlOnly) ? 'Dimmed rows are available outside this preview.' : ''}</p>
                                 </div>
                                 <div class="token-list"></div>
                             </section>
@@ -798,6 +874,11 @@
                 this.querySelector('language-selector').data = {
                     language: this.language,
                     options: SIDEBAR_PREVIEW_DATA.options,
+                };
+
+                this.querySelector('preset-selector').data = {
+                    mode: this.presetMode,
+                    note: this.getPresetNote(),
                 };
 
                 this.querySelector('preview-panel').preview = preview;
@@ -814,6 +895,7 @@
                         label: TOKEN_LABELS[key],
                         color: this.colors[key] || '#000000',
                         hidden: key === 'xmlDocAtTag' && xmlOnly,
+                        override: Boolean(this.overrides[key]),
                         unused: !(key === 'xmlDocAtTag' && xmlOnly) && !preview.usedTokenKeys.includes(key),
                     };
                     list.appendChild(row);
@@ -832,7 +914,6 @@
                 }
             }
         }
-
         customElements.define('xml-doc-color-app', XmlDocColorApp);
     </script>
 </body>

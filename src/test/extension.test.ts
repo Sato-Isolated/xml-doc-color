@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { readColors, resetColors, writeColors } from '../colorConfig';
+import { getThemeCustomizationSnippet, readColors, readResolvedColors, resetColors, writeColors } from '../colorConfig';
 import { normalizeWebviewMessage } from '../colorPickerView';
 import { getSidebarPreviewData, SUPPORTED_LANGUAGES } from '../languages';
 import { parseDocLine, TOKEN_TYPES } from '../parser';
@@ -122,6 +122,21 @@ suite('parseDocLine', () => {
 			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 0, length: 4 },
 		]);
 	});
+
+	test('supports single-quoted attributes and multiple tags on one line', () => {
+		const tokens = parseDocLine("<see cref='Result'/> and <paramref name='source'/>");
+
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocAttributeValue && token.length === 8));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocTagName && token.start === 1));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocTagName && token.start > 20));
+	});
+
+	test('does not mistake inline generics for XML tags', () => {
+		const tokens = parseDocLine('List<T> stays plain text while @param <T> remains supported');
+
+		assert.strictEqual(tokens.filter((token) => token.type === TOKEN_TYPES.xmlDocTagName).length, 1);
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocAtTag));
+	});
 });
 
 suite('colorConfig', () => {
@@ -229,12 +244,56 @@ suite('colorConfig', () => {
 			);
 		}
 	});
+
+	test('readResolvedColors reports inherited vs overridden token sources', async () => {
+		const editorConfig = vscode.workspace.getConfiguration('editor');
+		const originalCustomizations = editorConfig.inspect<Record<string, unknown>>('semanticTokenColorCustomizations')?.globalValue;
+
+		try {
+			await writeColors({
+				xmlDocTagName: '#111111',
+				xmlDocTagDelimiter: '#222222',
+				xmlDocAttribute: '#333333',
+				xmlDocAttributeValue: '#444444',
+				xmlDocAtTag: '#555555',
+				xmlDocLinePrefix: '#666666',
+				xmlDocText: '#777777',
+			}, 'csharp');
+
+			const resolved = readResolvedColors('csharp');
+			assert.strictEqual(resolved.colors.xmlDocTagName, '#111111');
+			assert.strictEqual(resolved.overrides.xmlDocTagName, true);
+			assert.strictEqual(typeof resolved.overrides.xmlDocText, 'boolean');
+		} finally {
+			await editorConfig.update(
+				'semanticTokenColorCustomizations',
+				originalCustomizations,
+				vscode.ConfigurationTarget.Global,
+			);
+		}
+	});
+
+	test('builds a theme customization snippet for the selected scope', () => {
+		const snippet = getThemeCustomizationSnippet({
+			xmlDocTagName: '#111111',
+			xmlDocTagDelimiter: '#222222',
+			xmlDocAttribute: '#333333',
+			xmlDocAttributeValue: '#444444',
+			xmlDocAtTag: '#555555',
+			xmlDocLinePrefix: '#666666',
+			xmlDocText: '#777777',
+		}, 'typescript');
+
+		assert.ok(snippet.includes('"xmlDocTagName:typescript"'));
+		assert.ok(snippet.includes('"foreground": "#111111"'));
+	});
 });
 
 suite('ColorPickerViewProvider messages', () => {
 	test('accepts valid apply messages', () => {
 		const message = normalizeWebviewMessage({
 			type: 'apply',
+			mode: 'custom',
 			colors: {
 				xmlDocTagName: '#111111',
 				xmlDocTagDelimiter: '#222222',
@@ -248,6 +307,7 @@ suite('ColorPickerViewProvider messages', () => {
 
 		assert.deepStrictEqual(message, {
 			type: 'apply',
+			mode: 'custom',
 			colors: {
 				xmlDocTagName: '#111111',
 				xmlDocTagDelimiter: '#222222',
@@ -278,12 +338,26 @@ suite('ColorPickerViewProvider messages', () => {
 			type: 'changeLanguage',
 			language: 'not-supported',
 		}), undefined);
+
+		assert.strictEqual(normalizeWebviewMessage({
+			type: 'apply',
+			mode: 'unknown',
+			colors: {
+				xmlDocTagName: '#111111',
+				xmlDocTagDelimiter: '#222222',
+				xmlDocAttribute: '#333333',
+				xmlDocAttributeValue: '#444444',
+				xmlDocAtTag: '#555555',
+				xmlDocLinePrefix: '#666666',
+				xmlDocText: '#777777',
+			},
+		}), undefined);
 	});
 });
 
 suite('Color Picker Webview HTML', () => {
 	test('uses a Web Components shell with required CSP placeholders', async () => {
-		const extension = vscode.extensions.getExtension('xml-doc-color.xml-doc-color');
+		const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
 		assert.ok(extension, 'expected development extension to be available');
 
 		const htmlPath = path.join(extension.extensionPath, 'media', 'settingsPanel.html');
@@ -292,7 +366,7 @@ suite('Color Picker Webview HTML', () => {
 		assert.ok(html.includes("style-src 'nonce-{{nonce}}'"), 'missing style nonce placeholder');
 		assert.ok(html.includes("script-src 'nonce-{{nonce}}'"), 'missing script nonce placeholder');
 		assert.ok(html.includes('{{cspSource}}'), 'missing CSP source placeholder');
-		assert.ok(html.includes('const SIDEBAR_PREVIEW_DATA = {{sidebarPreviewData}};'), 'missing preview data placeholder');
+		assert.ok(html.includes('<script id="preview-data" type="application/json">{{sidebarPreviewData}}</script>'), 'missing preview data script tag');
 		assert.ok(html.includes('<xml-doc-color-app></xml-doc-color-app>'), 'missing root Web Component');
 
 		for (const componentName of [
@@ -301,6 +375,7 @@ suite('Color Picker Webview HTML', () => {
 			'preview-panel',
 			'token-color-row',
 			'action-bar',
+			'preset-selector',
 		]) {
 			assert.ok(
 				html.includes(`customElements.define('${componentName}'`),
@@ -312,12 +387,15 @@ suite('Color Picker Webview HTML', () => {
 
 suite('Extension contributions', () => {
 	test('contributes a command to open the color picker', async () => {
-		await vscode.extensions.getExtension('xml-doc-color.xml-doc-color')?.activate();
+		await vscode.extensions.getExtension('MindLated.xml-doc-color')?.activate();
 		const commands = await vscode.commands.getCommands(true);
 		assert.ok(
 			commands.includes('xmlDocColor.openColorPicker'),
 			'expected xmlDocColor.openColorPicker to be available',
 		);
+		assert.ok(commands.includes('xmlDocColor.toggleEnabled'));
+		assert.ok(commands.includes('xmlDocColor.copyThemeRules'));
+		assert.ok(commands.includes('xmlDocColor.openThemeSnippet'));
 	});
 });
 
@@ -420,6 +498,53 @@ suite('XmlDocSemanticTokensProvider', () => {
 			);
 			assert.ok(tokens);
 			assert.strictEqual(tokens.data.length, 0, 'expected no semantic tokens after cancellation');
+		} finally {
+			tokenSource.dispose();
+			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	test('provides tokens for untitled supported documents', async () => {
+		const config = vscode.workspace.getConfiguration('xmlDocColor');
+		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
+		const provider = new XmlDocSemanticTokensProvider();
+		const tokenSource = new vscode.CancellationTokenSource();
+		const document = await vscode.workspace.openTextDocument({
+			language: 'typescript',
+			content: '/** <summary>Preview</summary> */',
+		});
+
+		try {
+			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
+			const tokens = await Promise.resolve(
+				provider.provideDocumentSemanticTokens(document, tokenSource.token),
+			);
+			assert.ok(tokens);
+			assert.ok(tokens.data.length > 0);
+		} finally {
+			tokenSource.dispose();
+			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	test('handles larger documents without returning empty output', async () => {
+		const config = vscode.workspace.getConfiguration('xmlDocColor');
+		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
+		const provider = new XmlDocSemanticTokensProvider();
+		const tokenSource = new vscode.CancellationTokenSource();
+		const lines = Array.from({ length: 400 }, (_, index) => `/// <param name="p${index}">Value ${index}</param>`);
+		const document = await vscode.workspace.openTextDocument({
+			language: 'csharp',
+			content: lines.join('\n'),
+		});
+
+		try {
+			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
+			const tokens = await Promise.resolve(
+				provider.provideDocumentSemanticTokens(document, tokenSource.token),
+			);
+			assert.ok(tokens);
+			assert.ok(tokens.data.length > 0);
 		} finally {
 			tokenSource.dispose();
 			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);

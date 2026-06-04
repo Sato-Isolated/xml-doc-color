@@ -1,13 +1,20 @@
-import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { DocColors, readColors, resetColors, writeColors } from './colorConfig';
+import { TextDecoder } from 'util';
+import {
+    DARK_PRESET_COLORS,
+    DOC_COLOR_KEYS,
+    DocColors,
+    getThemeCustomizationSnippet,
+    LIGHT_PRESET_COLORS,
+    readResolvedColors,
+    resetColors,
+    writeColors,
+} from './colorConfig';
 import { getSidebarPreviewData, SUPPORTED_LANGUAGES } from './languages';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getNonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result  = '';
+    let result = '';
     for (let i = 0; i < 32; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
@@ -18,17 +25,16 @@ function serializeForWebview(value: unknown): string {
     return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
+export type PresetMode = 'custom' | 'default' | 'dark' | 'light' | 'inherited';
+
 export type WebviewMessage =
     | { type: 'ready' }
     | { type: 'changeLanguage'; language: string }
-    | { type: 'apply'; colors: DocColors }
-    | { type: 'reset' };
+    | { type: 'apply'; colors: DocColors; mode: PresetMode }
+    | { type: 'reset' }
+    | { type: 'copyJson'; colors: DocColors; language: string };
 
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
-const COLOR_KEYS: ReadonlyArray<keyof DocColors> = [
-    'xmlDocTagName', 'xmlDocTagDelimiter', 'xmlDocAttribute',
-    'xmlDocAttributeValue', 'xmlDocAtTag', 'xmlDocLinePrefix', 'xmlDocText',
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -38,13 +44,21 @@ function isSupportedLanguageScope(value: unknown): value is string {
     return value === '*' || (typeof value === 'string' && SUPPORTED_LANGUAGES.includes(value));
 }
 
+function isPresetMode(value: unknown): value is PresetMode {
+    return value === 'custom'
+        || value === 'default'
+        || value === 'dark'
+        || value === 'light'
+        || value === 'inherited';
+}
+
 function normalizeColors(value: unknown): DocColors | undefined {
     if (!isRecord(value)) {
         return undefined;
     }
 
     const colors: Partial<DocColors> = {};
-    for (const key of COLOR_KEYS) {
+    for (const key of DOC_COLOR_KEYS) {
         const color = value[key];
         if (typeof color !== 'string' || !HEX_COLOR_RE.test(color)) {
             return undefined;
@@ -53,6 +67,20 @@ function normalizeColors(value: unknown): DocColors | undefined {
     }
 
     return colors as DocColors;
+}
+
+function getPresetColors(mode: PresetMode): DocColors | undefined {
+    switch (mode) {
+        case 'custom':
+            return undefined;
+        case 'default':
+        case 'dark':
+            return DARK_PRESET_COLORS;
+        case 'light':
+            return LIGHT_PRESET_COLORS;
+        case 'inherited':
+            return undefined;
+    }
 }
 
 export function normalizeWebviewMessage(value: unknown): WebviewMessage | undefined {
@@ -72,21 +100,29 @@ export function normalizeWebviewMessage(value: unknown): WebviewMessage | undefi
 
         case 'apply': {
             const colors = normalizeColors(value.colors);
-            return colors ? { type: 'apply', colors } : undefined;
+            if (!colors || !isPresetMode(value.mode)) {
+                return undefined;
+            }
+            return { type: 'apply', colors, mode: value.mode };
         }
 
         case 'reset':
             return { type: 'reset' };
+
+        case 'copyJson': {
+            const colors = normalizeColors(value.colors);
+            if (!colors || !isSupportedLanguageScope(value.language)) {
+                return undefined;
+            }
+            return { type: 'copyJson', colors, language: value.language };
+        }
 
         default:
             return undefined;
     }
 }
 
-// ── Provider ─────────────────────────────────────────────────────────────────
-
 export class ColorPickerViewProvider implements vscode.WebviewViewProvider {
-
     public static readonly viewType = 'xmlDocColor.colorPicker';
 
     private _view?: vscode.WebviewView;
@@ -94,11 +130,15 @@ export class ColorPickerViewProvider implements vscode.WebviewViewProvider {
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
-    resolveWebviewView(
+    refresh(): void {
+        this._sendColors();
+    }
+
+    async resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
-    ): void {
+    ): Promise<void> {
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -106,7 +146,7 @@ export class ColorPickerViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
         };
 
-        webviewView.webview.html = this._buildHtml(webviewView.webview);
+        webviewView.webview.html = await this._buildHtml(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (rawMessage: unknown) => {
             const msg = normalizeWebviewMessage(rawMessage);
@@ -120,39 +160,65 @@ export class ColorPickerViewProvider implements vscode.WebviewViewProvider {
                     break;
 
                 case 'changeLanguage':
-                    if (typeof msg.language === 'string') {
-                        this._language = msg.language;
-                        this._sendColors();
-                    }
+                    this._language = msg.language;
+                    this._sendColors();
                     break;
 
                 case 'apply':
-                    await this._applyColors(msg.colors);
+                    await this._applyColors(msg.colors, msg.mode);
                     break;
 
                 case 'reset':
                     await this._resetColors();
                     break;
+
+                case 'copyJson':
+                    await vscode.env.clipboard.writeText(
+                        getThemeCustomizationSnippet(msg.colors, msg.language),
+                    );
+                    await vscode.window.showInformationMessage('XML Doc Color: customization JSON copied.');
+                    break;
             }
         });
     }
 
-    // ── Private ───────────────────────────────────────────────────────────────
-
     private _sendColors(): void {
+        const resolved = readResolvedColors(this._language);
+        const activeEditorLanguage = vscode.window.activeTextEditor?.document.languageId;
+        const hasSupportedActiveEditor = !!activeEditorLanguage && SUPPORTED_LANGUAGES.includes(activeEditorLanguage);
+
         this._view?.webview.postMessage({
             type: 'init',
             language: this._language,
-            colors: readColors(this._language),
+            colors: resolved.colors,
+            overrides: resolved.overrides,
+            supportedEditorActive: hasSupportedActiveEditor,
+            activeEditorLanguage: hasSupportedActiveEditor ? activeEditorLanguage : undefined,
+            availablePresets: {
+                default: DARK_PRESET_COLORS,
+                dark: DARK_PRESET_COLORS,
+                light: LIGHT_PRESET_COLORS,
+                inherited: resolved.colors,
+            },
         });
     }
 
-    private async _applyColors(colors: DocColors): Promise<void> {
+    private async _applyColors(colors: DocColors, mode: PresetMode): Promise<void> {
         try {
-            await writeColors(colors, this._language);
+            if (mode === 'inherited') {
+                await resetColors(this._language);
+                await vscode.window.showInformationMessage(
+                    `XML Doc Color: inherited theme colors restored (${this._scopeLabel()}).`,
+                );
+            } else {
+                const presetColors = getPresetColors(mode);
+                await writeColors(presetColors ?? colors, this._language);
+                await vscode.window.showInformationMessage(
+                    `XML Doc Color: colors applied (${this._scopeLabel()}).`,
+                );
+            }
+
             this._sendColors();
-            const scope = this._language === '*' ? 'all languages' : this._language;
-            vscode.window.showInformationMessage(`XML Doc Color: colors applied (${scope}).`);
         } catch (error) {
             vscode.window.showErrorMessage(`XML Doc Color: failed to apply colors. ${formatError(error)}`);
         }
@@ -167,15 +233,20 @@ export class ColorPickerViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _buildHtml(webview: vscode.Webview): string {
-        const htmlUri  = vscode.Uri.joinPath(this._extensionUri, 'media', 'settingsPanel.html');
-        const nonce    = getNonce();
-        const template = fs.readFileSync(htmlUri.fsPath, 'utf-8');
+    private _scopeLabel(): string {
+        return this._language === '*' ? 'all languages' : this._language;
+    }
+
+    private async _buildHtml(webview: vscode.Webview): Promise<string> {
+        const htmlUri = vscode.Uri.joinPath(this._extensionUri, 'media', 'settingsPanel.html');
+        const nonce = getNonce();
+        const bytes = await vscode.workspace.fs.readFile(htmlUri);
+        const template = new TextDecoder('utf-8').decode(bytes);
         const previewData = serializeForWebview(getSidebarPreviewData());
 
         return template
-            .replace(/{{nonce}}/g,      nonce)
-            .replace(/{{cspSource}}/g,  webview.cspSource)
+            .replace(/{{nonce}}/g, nonce)
+            .replace(/{{cspSource}}/g, webview.cspSource)
             .replace(/{{sidebarPreviewData}}/g, previewData);
     }
 }

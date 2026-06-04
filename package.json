@@ -2,7 +2,7 @@
   "name": "xml-doc-color",
   "displayName": "XML Doc Color",
   "description": "Colorize XML documentation comments in C#, VB.NET, F#, Java, TypeScript, JavaScript, PHP and Kotlin",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "MindLated",
   "author": "MindLated",
   "homepage": "https://github.com/Sato-Isolated/xml-doc-color",
@@ -31,25 +31,17 @@
     "xml",
     "doc",
     "comment",
+    "semantic tokens",
     "csharp",
     "java",
+    "javadoc",
     "jsdoc",
     "tsdoc",
+    "phpdoc",
+    "kdoc",
     "kotlin",
     "color",
     "highlight"
-  ],
-  "activationEvents": [
-    "onCommand:xmlDocColor.openColorPicker",
-    "onLanguage:csharp",
-    "onLanguage:vb",
-    "onLanguage:fsharp",
-    "onLanguage:java",
-    "onLanguage:typescript",
-    "onLanguage:javascript",
-    "onLanguage:php",
-    "onLanguage:kotlin",
-    "onView:xmlDocColor.colorPicker"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -67,8 +59,40 @@
         "command": "xmlDocColor.openColorPicker",
         "title": "Open Color Picker",
         "category": "XML Doc Color"
+      },
+      {
+        "command": "xmlDocColor.toggleEnabled",
+        "title": "Toggle Enabled",
+        "category": "XML Doc Color"
+      },
+      {
+        "command": "xmlDocColor.copyThemeRules",
+        "title": "Copy Theme Customization JSON",
+        "category": "XML Doc Color"
+      },
+      {
+        "command": "xmlDocColor.openThemeSnippet",
+        "title": "Open Theme Customization Snippet",
+        "category": "XML Doc Color"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "xmlDocColor.openColorPicker",
+          "when": "editorLangId == csharp || editorLangId == vb || editorLangId == fsharp || editorLangId == java || editorLangId == typescript || editorLangId == javascript || editorLangId == php || editorLangId == kotlin"
+        },
+        {
+          "command": "xmlDocColor.toggleEnabled"
+        },
+        {
+          "command": "xmlDocColor.copyThemeRules"
+        },
+        {
+          "command": "xmlDocColor.openThemeSnippet"
+        }
+      ]
+    },
     "views": {
       "xml-doc-color-sidebar": [
         {
@@ -175,7 +199,53 @@
         "xmlDocColor.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable XML documentation comment colorization."
+          "scope": "language-overridable",
+          "markdownDescription": "Enable XML documentation comment colorization. Can be overridden per language in workspace settings."
+        },
+        "xmlDocColor.enabledLanguages": {
+          "type": "array",
+          "default": [
+            "csharp",
+            "vb",
+            "fsharp",
+            "java",
+            "typescript",
+            "javascript",
+            "php",
+            "kotlin"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "csharp",
+              "vb",
+              "fsharp",
+              "java",
+              "typescript",
+              "javascript",
+              "php",
+              "kotlin"
+            ]
+          },
+          "markdownDescription": "Subset of supported languages where XML Doc Color should stay active."
+        },
+        "xmlDocColor.showStatusItem": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the XML Doc Color language status item when a supported editor is open."
+        },
+        "xmlDocColor.configurationTarget": {
+          "type": "string",
+          "default": "global",
+          "enum": [
+            "global",
+            "workspace"
+          ],
+          "markdownEnumDescriptions": [
+            "Write color overrides and toggles to your global user settings.",
+            "Write color overrides and toggles to the current workspace settings."
+          ],
+          "markdownDescription": "Where XML Doc Color should persist settings changed from commands or the sidebar."
         }
       }
     }
@@ -198,7 +268,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
+    "@types/node": "^22.19.19",
     "@types/vscode": "^1.120.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
