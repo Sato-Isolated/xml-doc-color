@@ -4,6 +4,11 @@ export const TOKEN_TYPES = {
     xmlDocTagName:         'xmlDocTagName',
     xmlDocAttribute:       'xmlDocAttribute',
     xmlDocAttributeValue:  'xmlDocAttributeValue',
+    xmlDocEntity:          'xmlDocEntity',
+    xmlDocCDataDelimiter:  'xmlDocCDataDelimiter',
+    xmlDocCDataText:       'xmlDocCDataText',
+    xmlDocInlineDelimiter: 'xmlDocInlineDelimiter',
+    xmlDocReferenceValue:  'xmlDocReferenceValue',
     xmlDocAtTag:           'xmlDocAtTag',
     xmlDocLinePrefix:      'xmlDocLinePrefix',
     xmlDocText:            'xmlDocText',
@@ -12,6 +17,10 @@ export const TOKEN_TYPES = {
 export type TokenTypeName = typeof TOKEN_TYPES[keyof typeof TOKEN_TYPES];
 
 /** A token offset within the stripped content string of a single doc line. */
+export interface ParseDocLineOptions {
+    includeText?: boolean;
+}
+
 export interface ParsedToken {
     type: TokenTypeName;
     /** Character offset from the start of the content string passed to `parseDocLine`. */
@@ -28,41 +37,135 @@ export interface ParsedToken {
  *  - `@param`, `@returns`, `{@link}`, etc.
  *  - Plain text runs between tags are emitted as `xmlDocText` tokens.
  */
-export function parseDocLine(content: string): ParsedToken[] {
+export function parseDocLine(content: string, options: ParseDocLineOptions = {}): ParsedToken[] {
     const tokens: ParsedToken[] = [];
+    const includeText = options.includeText !== false;
     let i = 0;
     const n = content.length;
     let textStart = 0; // tracks the start of the current plain-text run
 
     function flushText(end: number): void {
-        if (end > textStart) {
+        if (includeText && end > textStart) {
             tokens.push({ type: TOKEN_TYPES.xmlDocText, start: textStart, length: end - textStart });
         }
     }
 
     while (i < n) {
+        if (content.startsWith('<![CDATA[', i)) {
+            flushText(i);
+            const afterCData = parseCData(content, i, n, tokens);
+            if (afterCData > i) {
+                i = afterCData;
+                textStart = i;
+                continue;
+            }
+        }
+
+        if (content[i] === '&' && looksLikeEntity(content, i)) {
+            flushText(i);
+            const entity = parseEntity(content, i);
+            if (entity) {
+                tokens.push(entity);
+                i += entity.length;
+                textStart = i;
+                continue;
+            }
+        }
+
         if (content[i] === '<' && looksLikeXmlTagStart(content, i)) {
             flushText(i);
             const before = i;
             i = parseXmlTag(content, i, n, tokens);
             textStart = i;
-            // If parseXmlTag rejected the sequence, keep the raw "<" as plain text.
             if (i === before) { i++; textStart = before; }
-        } else if (content[i] === '@' && i + 1 < n && /\w/.test(content[i + 1])) {
-            // @tag — accept anywhere (handles both line-start @param and inline {@link})
+            continue;
+        }
+
+        if (content[i] === '{' && content.startsWith('{@', i) && i + 2 < n) {
+            flushText(i);
+            const afterInline = parseInlineDocTag(content, i, n, tokens);
+            if (afterInline > i) {
+                i = afterInline;
+                textStart = i;
+                continue;
+            }
+        }
+
+        if (content[i] === '@' && i + 1 < n && /\w/.test(content[i + 1])) {
             flushText(i);
             const start = i++;
             while (i < n && /\w/.test(content[i])) { i++; }
             tokens.push({ type: TOKEN_TYPES.xmlDocAtTag, start, length: i - start });
             textStart = i;
-        } else {
-            i++;
+            continue;
         }
+
+        i++;
     }
 
     flushText(n);
 
     return tokens;
+}
+
+function looksLikeEntity(content: string, index: number): boolean {
+    return /&(?:#x?[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);/.test(content.slice(index));
+}
+
+function parseEntity(content: string, index: number): ParsedToken | undefined {
+    const match = content.slice(index).match(/^&(?:#x?[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);/);
+    if (!match) {
+        return undefined;
+    }
+
+    return { type: TOKEN_TYPES.xmlDocEntity, start: index, length: match[0].length };
+}
+
+function parseCData(content: string, index: number, n: number, tokens: ParsedToken[]): number {
+    const start = index;
+    const cdataStart = '<![CDATA[';
+    tokens.push({ type: TOKEN_TYPES.xmlDocCDataDelimiter, start, length: cdataStart.length });
+    index += cdataStart.length;
+
+    const end = content.indexOf(']]>', index);
+    if (end === -1) {
+        tokens.push({ type: TOKEN_TYPES.xmlDocCDataText, start: index, length: n - index });
+        return n;
+    }
+
+    tokens.push({ type: TOKEN_TYPES.xmlDocCDataText, start: index, length: end - index });
+    tokens.push({ type: TOKEN_TYPES.xmlDocCDataDelimiter, start: end, length: 3 });
+    return end + 3;
+}
+
+function parseInlineDocTag(content: string, index: number, n: number, tokens: ParsedToken[]): number {
+    const tagStart = index;
+    tokens.push({ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: tagStart, length: 1 });
+    index += 1;
+
+    if (index >= n || content[index] !== '@') {
+        return index;
+    }
+
+    const atStart = index;
+    index += 1;
+    while (index < n && /[\w:-]/.test(content[index])) { index++; }
+    const tagName = content.slice(atStart + 1, index);
+    tokens.push({ type: TOKEN_TYPES.xmlDocAtTag, start: atStart, length: index - atStart });
+
+    while (index < n && /\s/.test(content[index])) { index++; }
+    const targetStart = index;
+    while (index < n && content[index] !== '}') { index++; }
+    if (index < n) {
+        if (['link', 'see', 'linkplain', 'value'].includes(tagName.toLowerCase()) && targetStart < index) {
+            tokens.push({ type: TOKEN_TYPES.xmlDocReferenceValue, start: targetStart, length: index - targetStart });
+        }
+
+        tokens.push({ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: index, length: 1 });
+        index += 1;
+    }
+
+    return index;
 }
 
 function looksLikeXmlTagStart(content: string, index: number): boolean {
@@ -168,11 +271,15 @@ function parseXmlTag(content: string, i: number, n: number, tokens: ParsedToken[
             while (i < n && /[ \t]/.test(content[i])) { i++; }
             if (i < n && (content[i] === '"' || content[i] === "'")) {
                 const q = content[i];
+                const attrName = content.slice(attrStart, i).trim();
                 const valStart = i;
                 i++;
                 while (i < n && content[i] !== q) { i++; }
                 if (i < n) { i++; } // consume closing quote
-                tagTokens.push({ type: TOKEN_TYPES.xmlDocAttributeValue, start: valStart, length: i - valStart });
+                const valueType = isReferenceAttribute(attrName)
+                    ? TOKEN_TYPES.xmlDocReferenceValue
+                    : TOKEN_TYPES.xmlDocAttributeValue;
+                tagTokens.push({ type: valueType, start: valStart, length: i - valStart });
             }
         }
     }
@@ -188,6 +295,10 @@ function parseXmlTag(content: string, i: number, n: number, tokens: ParsedToken[
 
     tokens.push(...tagTokens);
     return i;
+}
+
+function isReferenceAttribute(name: string): boolean {
+    return /^(?:cref|name|href|langword|path|file)$/i.test(name);
 }
 
 function isLikelyXmlTagName(tagName: string, content: string, i: number, n: number): boolean {

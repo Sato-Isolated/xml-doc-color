@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Sato-Isolated/xml-doc-color?style=flat-square)](https://github.com/Sato-Isolated/xml-doc-color)
 
-Bring your XML documentation comments to life. **XML Doc Color** uses semantic highlighting to give distinct colors to every part of a doc comment — tag names, delimiters, attributes, values, `@`-tags, prefixes, and plain text — across 8 languages.
+Bring your XML documentation comments to life. **XML Doc Color** uses semantic highlighting to give distinct colors to every part of a doc comment — tag names, delimiters, attributes, values, entities, CDATA, inline references, `@`-tags, prefixes, and plain text — across 10 languages, including TSX and JSX.
 
 ![XML Doc Color sidebar and highlighted code](img/image.png)
 
@@ -12,8 +12,8 @@ Bring your XML documentation comments to life. **XML Doc Color** uses semantic h
 
 ## Features
 
-- **Semantic highlighting** for XML doc comments (`///`, `'''`, `/** */`) across 8 languages
-- **7 individually configurable token types** — fully customizable via the sidebar Color Picker or your theme JSON
+- **Semantic highlighting** for XML doc comments (`///`, `'''`, `/** */`) across 10 languages, including TSX and JSX
+- **12 individually configurable token types** — fully customizable via the sidebar Color Picker or your theme JSON
 - **Sidebar Color Picker** — per-language color overrides with live preview, presets, inherited-theme reset, JSON export, and instant apply
 - **Two bundled themes** — *XML Doc Color Dark* and *XML Doc Color Light* for explicit, zero-config color control
 - **Helpful commands** — toggle the extension, copy semantic-token JSON, or open a ready-to-paste snippet
@@ -31,7 +31,9 @@ Bring your XML documentation comments to life. **XML Doc Color** uses semantic h
 | VB.NET | `'''` | XML doc comments |
 | Java | `/** … */` | Javadoc |
 | TypeScript | `/** … */` | TSDoc / JSDoc |
+| TSX | `/** … */` | TSDoc / JSDoc |
 | JavaScript | `/** … */` | JSDoc |
+| JSX | `/** … */` | JSDoc |
 | PHP | `/** … */` | PHPDoc |
 | Kotlin | `/** … */` | KDoc |
 
@@ -39,7 +41,7 @@ Bring your XML documentation comments to life. **XML Doc Color** uses semantic h
 
 ## Token Colors
 
-All 7 token types inherit from a standard VS Code token type so they work out of the box with any theme. Each can be overridden individually.
+All 12 token types inherit from standard VS Code token types so they work out of the box with any theme. Each can be overridden individually.
 
 | Token type | Colors | Inherits from |
 |---|---|---|
@@ -47,6 +49,11 @@ All 7 token types inherit from a standard VS Code token type so they work out of
 | `xmlDocTagDelimiter` | `<`, `>`, `</`, `/>`, `<!--`, `-->` | `operator` |
 | `xmlDocAttribute` | `name`, `cref`, `href` … | `property` |
 | `xmlDocAttributeValue` | `"paramName"` … | `string` |
+| `xmlDocEntity` | `&amp;`, `&#xA;` … | `constant` |
+| `xmlDocCDataDelimiter` | `<![CDATA[` / `]]>` | `operator` |
+| `xmlDocCDataText` | Text inside CDATA blocks | `string` |
+| `xmlDocInlineDelimiter` | `{`, `}` in `{@link Result}` | `operator` |
+| `xmlDocReferenceValue` | `Result`, `cref`, `href` targets | `variable` |
 | `xmlDocAtTag` | `@param`, `@returns`, `@link` … | `keyword` |
 | `xmlDocLinePrefix` | `///`, `'''`, `*`, `/**`, `*/` | `comment` |
 | `xmlDocText` | Plain text between tags | `comment` |
@@ -103,6 +110,7 @@ XML Doc Color contributes semantic token types, so your editor theme must allow 
 | `xmlDocColor.enabledLanguages` | `string[]` | all supported languages | Limit XML Doc Color to a subset of supported languages |
 | `xmlDocColor.showStatusItem` | `boolean` | `true` | Show the XML Doc Color language status item |
 | `xmlDocColor.configurationTarget` | `"global" \| "workspace"` | `"global"` | Choose where sidebar and command changes are persisted |
+| `xmlDocColor.tokenMode` | `"structuredOnly" \| "full"` | `"structuredOnly"` | Control whether the provider colors only structured doc syntax or also plain prose text |
 
 ---
 

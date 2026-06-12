@@ -4,6 +4,23 @@ All notable changes to the "xml-doc-color" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.5] - 2026-06-12
+
+### Added
+
+- TSX and JSX support for the semantic token provider and sidebar previews
+- Richer token coverage for entities, CDATA, inline delimiters, and reference-style values
+- New `xmlDocColor.tokenMode` setting to switch between structured-only and full prose coloring
+
+### Changed
+
+- Updated the semantic token legend, presets, and read/write color logic to cover the full doc-token model
+- Refreshed language metadata and preview data to reflect the current supported language set
+
+### Fixed
+
+- Fixed the token provider range handling for full-document scans and alignment issues in the tests and manifest
+
 ## [0.0.4] - 2026-06-04
 
 ### Added

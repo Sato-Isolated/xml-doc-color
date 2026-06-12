@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { getThemeCustomizationSnippet, readColors, readResolvedColors, resetColors, writeColors } from '../colorConfig';
 import { normalizeWebviewMessage } from '../colorPickerView';
-import { getSidebarPreviewData, SUPPORTED_LANGUAGES } from '../languages';
+import { getEnabledLanguages, getSidebarPreviewData, SUPPORTED_LANGUAGES } from '../languages';
 import { parseDocLine, TOKEN_TYPES } from '../parser';
 import { XmlDocSemanticTokensProvider } from '../provider';
 
@@ -87,6 +87,23 @@ suite('Sidebar Preview Data', () => {
 });
 
 suite('parseDocLine', () => {
+	test('recognizes TSX/JSX as supported languages', () => {
+		assert.ok(SUPPORTED_LANGUAGES.includes('typescriptreact'));
+		assert.ok(SUPPORTED_LANGUAGES.includes('javascriptreact'));
+		assert.ok(getEnabledLanguages().includes('typescriptreact'));
+		assert.ok(getEnabledLanguages().includes('javascriptreact'));
+	});
+
+	test('tokenizes entities, CDATA, and inline references', () => {
+		const tokens = parseDocLine('Use &amp; &lt;tag&gt; and <![CDATA[text]]> {@link Result}');
+
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocEntity));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocCDataDelimiter));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocCDataText));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocInlineDelimiter));
+		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocReferenceValue));
+	});
+
 	test('parses XML tags with attributes and closing tags', () => {
 		const tokens = parseDocLine('<param name="source">Input</param>');
 
@@ -107,9 +124,11 @@ suite('parseDocLine', () => {
 		const tokens = parseDocLine('{@link Result} and @param source');
 
 		assert.deepStrictEqual(tokens, [
-			{ type: TOKEN_TYPES.xmlDocText, start: 0, length: 1 },
+			{ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: 0, length: 1 },
 			{ type: TOKEN_TYPES.xmlDocAtTag, start: 1, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocText, start: 6, length: 13 },
+			{ type: TOKEN_TYPES.xmlDocReferenceValue, start: 7, length: 6 },
+			{ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: 13, length: 1 },
+			{ type: TOKEN_TYPES.xmlDocText, start: 14, length: 5 },
 			{ type: TOKEN_TYPES.xmlDocAtTag, start: 19, length: 6 },
 			{ type: TOKEN_TYPES.xmlDocText, start: 25, length: 7 },
 		]);
@@ -151,9 +170,14 @@ suite('colorConfig', () => {
 					xmlDocTagDelimiter: '#222222',
 					xmlDocAttribute: '#333333',
 					xmlDocAttributeValue: '#444444',
-					xmlDocAtTag: '#555555',
-					xmlDocLinePrefix: '#666666',
-					xmlDocText: '#777777',
+					xmlDocEntity: '#555555',
+					xmlDocCDataDelimiter: '#666666',
+					xmlDocCDataText: '#777777',
+					xmlDocInlineDelimiter: '#888888',
+					xmlDocReferenceValue: '#999999',
+					xmlDocAtTag: '#AAAAAA',
+					xmlDocLinePrefix: '#BBBBBB',
+					xmlDocText: '#CCCCCC',
 				}, '*'),
 				/Invalid XML doc color/,
 			);
@@ -176,9 +200,14 @@ suite('colorConfig', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			}, '*');
 
 			await writeColors({
@@ -186,9 +215,14 @@ suite('colorConfig', () => {
 				xmlDocTagDelimiter: '#BBBBBB',
 				xmlDocAttribute: '#CCCCCC',
 				xmlDocAttributeValue: '#DDDDDD',
-				xmlDocAtTag: '#EEEEEE',
-				xmlDocLinePrefix: '#FFFFFF',
-				xmlDocText: '#0A0A0A',
+				xmlDocEntity: '#EEEEEE',
+				xmlDocCDataDelimiter: '#FFFFFF',
+				xmlDocCDataText: '#0A0A0A',
+				xmlDocInlineDelimiter: '#0B0B0B',
+				xmlDocReferenceValue: '#0C0C0C',
+				xmlDocAtTag: '#0D0D0D',
+				xmlDocLinePrefix: '#0E0E0E',
+				xmlDocText: '#0F0F0F',
 			}, 'csharp');
 
 			assert.strictEqual(readColors('csharp').xmlDocTagName, '#AAAAAA');
@@ -197,9 +231,9 @@ suite('colorConfig', () => {
 
 			const csharpColors = readColors('csharp');
 			assert.strictEqual(csharpColors.xmlDocTagName, '#111111');
-			assert.strictEqual(csharpColors.xmlDocAtTag, '#555555');
-			assert.strictEqual(csharpColors.xmlDocLinePrefix, '#666666');
-			assert.strictEqual(csharpColors.xmlDocText, '#777777');
+			assert.strictEqual(csharpColors.xmlDocAtTag, '#AAAAAA');
+			assert.strictEqual(csharpColors.xmlDocLinePrefix, '#BBBBBB');
+			assert.strictEqual(csharpColors.xmlDocText, '#CCCCCC');
 		} finally {
 			await editorConfig.update(
 				'semanticTokenColorCustomizations',
@@ -219,9 +253,14 @@ suite('colorConfig', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			}, '*');
 
 			const customizations = vscode.workspace
@@ -233,9 +272,14 @@ suite('colorConfig', () => {
 			assert.deepStrictEqual(rules.xmlDocTagDelimiter, { foreground: '#222222' });
 			assert.deepStrictEqual(rules.xmlDocAttribute, { foreground: '#333333' });
 			assert.deepStrictEqual(rules.xmlDocAttributeValue, { foreground: '#444444' });
-			assert.deepStrictEqual(rules.xmlDocAtTag, { foreground: '#555555', bold: true });
-			assert.deepStrictEqual(rules.xmlDocLinePrefix, { foreground: '#666666' });
-			assert.deepStrictEqual(rules.xmlDocText, { foreground: '#777777' });
+			assert.deepStrictEqual(rules.xmlDocEntity, { foreground: '#555555' });
+			assert.deepStrictEqual(rules.xmlDocCDataDelimiter, { foreground: '#666666' });
+			assert.deepStrictEqual(rules.xmlDocCDataText, { foreground: '#777777' });
+			assert.deepStrictEqual(rules.xmlDocInlineDelimiter, { foreground: '#888888' });
+			assert.deepStrictEqual(rules.xmlDocReferenceValue, { foreground: '#999999' });
+			assert.deepStrictEqual(rules.xmlDocAtTag, { foreground: '#AAAAAA', bold: true });
+			assert.deepStrictEqual(rules.xmlDocLinePrefix, { foreground: '#BBBBBB' });
+			assert.deepStrictEqual(rules.xmlDocText, { foreground: '#CCCCCC' });
 		} finally {
 			await editorConfig.update(
 				'semanticTokenColorCustomizations',
@@ -255,9 +299,14 @@ suite('colorConfig', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			}, 'csharp');
 
 			const resolved = readResolvedColors('csharp');
@@ -279,9 +328,14 @@ suite('colorConfig', () => {
 			xmlDocTagDelimiter: '#222222',
 			xmlDocAttribute: '#333333',
 			xmlDocAttributeValue: '#444444',
-			xmlDocAtTag: '#555555',
-			xmlDocLinePrefix: '#666666',
-			xmlDocText: '#777777',
+			xmlDocEntity: '#555555',
+			xmlDocCDataDelimiter: '#666666',
+			xmlDocCDataText: '#777777',
+			xmlDocInlineDelimiter: '#888888',
+			xmlDocReferenceValue: '#999999',
+			xmlDocAtTag: '#AAAAAA',
+			xmlDocLinePrefix: '#BBBBBB',
+			xmlDocText: '#CCCCCC',
 		}, 'typescript');
 
 		assert.ok(snippet.includes('"xmlDocTagName:typescript"'));
@@ -299,9 +353,14 @@ suite('ColorPickerViewProvider messages', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			},
 		});
 
@@ -313,9 +372,14 @@ suite('ColorPickerViewProvider messages', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			},
 		});
 	});
@@ -328,9 +392,14 @@ suite('ColorPickerViewProvider messages', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			},
 		}), undefined);
 
@@ -347,9 +416,14 @@ suite('ColorPickerViewProvider messages', () => {
 				xmlDocTagDelimiter: '#222222',
 				xmlDocAttribute: '#333333',
 				xmlDocAttributeValue: '#444444',
-				xmlDocAtTag: '#555555',
-				xmlDocLinePrefix: '#666666',
-				xmlDocText: '#777777',
+				xmlDocEntity: '#555555',
+				xmlDocCDataDelimiter: '#666666',
+				xmlDocCDataText: '#777777',
+				xmlDocInlineDelimiter: '#888888',
+				xmlDocReferenceValue: '#999999',
+				xmlDocAtTag: '#AAAAAA',
+				xmlDocLinePrefix: '#BBBBBB',
+				xmlDocText: '#CCCCCC',
 			},
 		}), undefined);
 	});

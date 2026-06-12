@@ -1,8 +1,8 @@
 {
   "name": "xml-doc-color",
   "displayName": "XML Doc Color",
-  "description": "Colorize XML documentation comments in C#, VB.NET, F#, Java, TypeScript, JavaScript, PHP and Kotlin",
-  "version": "0.0.4",
+  "description": "Colorize XML/Javadoc/TSDoc/JSDoc/PHPDoc/KDoc comments in C#, VB.NET, F#, Java, TypeScript, TSX, JavaScript, JSX, PHP and Kotlin",
+  "version": "0.0.5",
   "publisher": "MindLated",
   "author": "MindLated",
   "homepage": "https://github.com/Sato-Isolated/xml-doc-color",
@@ -44,6 +44,18 @@
     "highlight"
   ],
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:csharp",
+    "onLanguage:vb",
+    "onLanguage:fsharp",
+    "onLanguage:java",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
+    "onLanguage:php",
+    "onLanguage:kotlin"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -80,7 +92,7 @@
       "commandPalette": [
         {
           "command": "xmlDocColor.openColorPicker",
-          "when": "editorLangId == csharp || editorLangId == vb || editorLangId == fsharp || editorLangId == java || editorLangId == typescript || editorLangId == javascript || editorLangId == php || editorLangId == kotlin"
+          "when": "editorLangId == csharp || editorLangId == vb || editorLangId == fsharp || editorLangId == java || editorLangId == typescript || editorLangId == typescriptreact || editorLangId == javascript || editorLangId == javascriptreact || editorLangId == php || editorLangId == kotlin"
         },
         {
           "command": "xmlDocColor.toggleEnabled"
@@ -124,6 +136,31 @@
         "description": "Attribute value inside an XML doc tag, e.g. \"paramName\""
       },
       {
+        "id": "xmlDocEntity",
+        "superType": "constant",
+        "description": "Named or numeric XML entity reference such as &amp; or &#xA;"
+      },
+      {
+        "id": "xmlDocCDataDelimiter",
+        "superType": "operator",
+        "description": "CDATA delimiters: <![CDATA[ and ]]>"
+      },
+      {
+        "id": "xmlDocCDataText",
+        "superType": "string",
+        "description": "Text content inside a CDATA section"
+      },
+      {
+        "id": "xmlDocInlineDelimiter",
+        "superType": "operator",
+        "description": "Inline doc tag delimiters such as { and }"
+      },
+      {
+        "id": "xmlDocReferenceValue",
+        "superType": "variable",
+        "description": "Reference-style values such as {@link Result} or cref/href targets"
+      },
+      {
         "id": "xmlDocAtTag",
         "superType": "keyword",
         "description": "@-style doc tag, e.g. @param, @returns, @link"
@@ -154,6 +191,21 @@
           "xmlDocAttributeValue": [
             "string.quoted.double"
           ],
+          "xmlDocEntity": [
+            "constant.character.entity"
+          ],
+          "xmlDocCDataDelimiter": [
+            "punctuation.definition.cdata"
+          ],
+          "xmlDocCDataText": [
+            "string.unquoted.cdata"
+          ],
+          "xmlDocInlineDelimiter": [
+            "punctuation.definition.tag"
+          ],
+          "xmlDocReferenceValue": [
+            "variable.other.reference"
+          ],
           "xmlDocAtTag": [
             "keyword.other.documentation",
             "storage.type.annotation"
@@ -183,7 +235,13 @@
       "[typescript]": {
         "editor.semanticHighlighting.enabled": true
       },
+      "[typescriptreact]": {
+        "editor.semanticHighlighting.enabled": true
+      },
       "[javascript]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "[javascriptreact]": {
         "editor.semanticHighlighting.enabled": true
       },
       "[php]": {
@@ -210,7 +268,9 @@
             "fsharp",
             "java",
             "typescript",
+            "typescriptreact",
             "javascript",
+            "javascriptreact",
             "php",
             "kotlin"
           ],
@@ -222,7 +282,9 @@
               "fsharp",
               "java",
               "typescript",
+              "typescriptreact",
               "javascript",
+              "javascriptreact",
               "php",
               "kotlin"
             ]
@@ -233,6 +295,15 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show the XML Doc Color language status item when a supported editor is open."
+        },
+        "xmlDocColor.tokenMode": {
+          "type": "string",
+          "default": "structuredOnly",
+          "enum": [
+            "structuredOnly",
+            "full"
+          ],
+          "markdownDescription": "Controls how much of documentation comments is tokenized. `structuredOnly` colors XML/doc structure and references; `full` also colors plain prose text."
         },
         "xmlDocColor.configurationTarget": {
           "type": "string",

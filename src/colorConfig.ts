@@ -5,6 +5,11 @@ export interface DocColors {
     xmlDocTagDelimiter:   string;
     xmlDocAttribute:      string;
     xmlDocAttributeValue: string;
+    xmlDocEntity:         string;
+    xmlDocCDataDelimiter: string;
+    xmlDocCDataText:      string;
+    xmlDocInlineDelimiter: string;
+    xmlDocReferenceValue: string;
     xmlDocAtTag:          string;
     xmlDocLinePrefix:     string;
     xmlDocText:           string;
@@ -15,6 +20,11 @@ export const DARK_PRESET_COLORS: DocColors = {
     xmlDocTagDelimiter:   '#6D8B6D',
     xmlDocAttribute:      '#9CDCFE',
     xmlDocAttributeValue: '#CE9178',
+    xmlDocEntity:         '#DCDCAA',
+    xmlDocCDataDelimiter: '#6D8B6D',
+    xmlDocCDataText:      '#CE9178',
+    xmlDocInlineDelimiter: '#6D8B6D',
+    xmlDocReferenceValue: '#4FC1FF',
     xmlDocAtTag:          '#C586C0',
     xmlDocLinePrefix:     '#6A9955',
     xmlDocText:           '#D4D4D4',
@@ -25,6 +35,11 @@ export const LIGHT_PRESET_COLORS: DocColors = {
     xmlDocTagDelimiter:   '#4D7C0F',
     xmlDocAttribute:      '#1D4ED8',
     xmlDocAttributeValue: '#B45309',
+    xmlDocEntity:         '#92400E',
+    xmlDocCDataDelimiter: '#4D7C0F',
+    xmlDocCDataText:      '#B45309',
+    xmlDocInlineDelimiter: '#4D7C0F',
+    xmlDocReferenceValue: '#0369A1',
     xmlDocAtTag:          '#9333EA',
     xmlDocLinePrefix:     '#15803D',
     xmlDocText:           '#111827',
@@ -34,7 +49,9 @@ export const DEFAULT_COLORS: DocColors = DARK_PRESET_COLORS;
 
 export const DOC_COLOR_KEYS: ReadonlyArray<keyof DocColors> = [
     'xmlDocTagName', 'xmlDocTagDelimiter', 'xmlDocAttribute',
-    'xmlDocAttributeValue', 'xmlDocAtTag', 'xmlDocLinePrefix', 'xmlDocText',
+    'xmlDocAttributeValue', 'xmlDocEntity', 'xmlDocCDataDelimiter',
+    'xmlDocCDataText', 'xmlDocInlineDelimiter', 'xmlDocReferenceValue',
+    'xmlDocAtTag', 'xmlDocLinePrefix', 'xmlDocText',
 ];
 
 export type ConfigurationTargetSetting = 'global' | 'workspace';
@@ -111,6 +128,11 @@ export function readResolvedColors(language = '*'): ResolvedColors {
     const tagDelimiter = getColor('xmlDocTagDelimiter');
     const attribute = getColor('xmlDocAttribute');
     const attributeValue = getColor('xmlDocAttributeValue');
+    const entity = getColor('xmlDocEntity');
+    const cDataDelimiter = getColor('xmlDocCDataDelimiter');
+    const cDataText = getColor('xmlDocCDataText');
+    const inlineDelimiter = getColor('xmlDocInlineDelimiter');
+    const referenceValue = getColor('xmlDocReferenceValue');
     const atTag = getColor('xmlDocAtTag');
     const linePrefix = getColor('xmlDocLinePrefix');
     const text = getColor('xmlDocText');
@@ -121,6 +143,11 @@ export function readResolvedColors(language = '*'): ResolvedColors {
             xmlDocTagDelimiter:   tagDelimiter.color,
             xmlDocAttribute:      attribute.color,
             xmlDocAttributeValue: attributeValue.color,
+            xmlDocEntity:         entity.color,
+            xmlDocCDataDelimiter: cDataDelimiter.color,
+            xmlDocCDataText:      cDataText.color,
+            xmlDocInlineDelimiter: inlineDelimiter.color,
+            xmlDocReferenceValue: referenceValue.color,
             xmlDocAtTag:          atTag.color,
             xmlDocLinePrefix:     linePrefix.color,
             xmlDocText:           text.color,
@@ -130,6 +157,11 @@ export function readResolvedColors(language = '*'): ResolvedColors {
             xmlDocTagDelimiter:   tagDelimiter.override,
             xmlDocAttribute:      attribute.override,
             xmlDocAttributeValue: attributeValue.override,
+            xmlDocEntity:         entity.override,
+            xmlDocCDataDelimiter: cDataDelimiter.override,
+            xmlDocCDataText:      cDataText.override,
+            xmlDocInlineDelimiter: inlineDelimiter.override,
+            xmlDocReferenceValue: referenceValue.override,
             xmlDocAtTag:          atTag.override,
             xmlDocLinePrefix:     linePrefix.override,
             xmlDocText:           text.override,

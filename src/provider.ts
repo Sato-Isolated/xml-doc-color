@@ -2,6 +2,21 @@ import * as vscode from 'vscode';
 import { getEnabledLanguages, LANGUAGE_CONFIGS, LanguageConfig } from './languages';
 import { parseDocLine, TOKEN_TYPES, TokenTypeName } from './parser';
 
+interface CachedTokenEntry {
+    line: number;
+    start: number;
+    length: number;
+    typeIndex: number;
+    modifiers: number;
+}
+
+interface DocumentTokenCache {
+    version: number;
+    languageId: string;
+    tokenMode: 'structuredOnly' | 'full';
+    tokens: CachedTokenEntry[];
+}
+
 /**
  * Ordered list of token type names that forms the SemanticTokensLegend.
  * The index of each type in this array is the numeric token type ID used by the builder.
@@ -11,6 +26,11 @@ export const TOKEN_TYPES_ARRAY: TokenTypeName[] = [
     TOKEN_TYPES.xmlDocTagName,
     TOKEN_TYPES.xmlDocAttribute,
     TOKEN_TYPES.xmlDocAttributeValue,
+    TOKEN_TYPES.xmlDocEntity,
+    TOKEN_TYPES.xmlDocCDataDelimiter,
+    TOKEN_TYPES.xmlDocCDataText,
+    TOKEN_TYPES.xmlDocInlineDelimiter,
+    TOKEN_TYPES.xmlDocReferenceValue,
     TOKEN_TYPES.xmlDocAtTag,
     TOKEN_TYPES.xmlDocLinePrefix,
     TOKEN_TYPES.xmlDocText,
@@ -30,6 +50,7 @@ export class XmlDocSemanticTokensProvider
     implements vscode.DocumentSemanticTokensProvider, vscode.DocumentRangeSemanticTokensProvider
 {
     private readonly _onDidChangeSemanticTokens = new vscode.EventEmitter<void>();
+    private readonly _documentCache = new Map<string, DocumentTokenCache>();
 
     readonly onDidChangeSemanticTokens = this._onDidChangeSemanticTokens.event;
 
@@ -37,7 +58,7 @@ export class XmlDocSemanticTokensProvider
         document: vscode.TextDocument,
         token: vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.SemanticTokens> {
-        const fullRange = new vscode.Range(0, 0, document.lineCount - 1, 0);
+        const fullRange = new vscode.Range(0, 0, document.lineCount - 1, Number.MAX_SAFE_INTEGER);
         return this.provideDocumentRangeSemanticTokens(document, fullRange, token);
     }
 
@@ -59,13 +80,14 @@ export class XmlDocSemanticTokensProvider
             return emptyTokens();
         }
 
+        const tokenMode = getTokenMode(document);
+        const cached = this.getCachedTokens(document, config, tokenMode, token);
         const builder = new vscode.SemanticTokensBuilder(LEGEND);
 
-        if (config.lineDocPrefix) {
-            this.processLineDoc(document, range, config, builder, token);
-        }
-        if (config.blockDocStart) {
-            this.processBlockDoc(document, range, config, builder, token);
+        for (const entry of cached) {
+            if (isTokenInRange(entry, range)) {
+                builder.push(entry.line, entry.start, entry.length, entry.typeIndex, entry.modifiers);
+            }
         }
 
         return builder.build();
@@ -75,12 +97,41 @@ export class XmlDocSemanticTokensProvider
     // Line-based doc comments: ///, '''
     // -------------------------------------------------------------------------
 
+    private getCachedTokens(
+        document: vscode.TextDocument,
+        config: LanguageConfig,
+        tokenMode: 'structuredOnly' | 'full',
+        token: vscode.CancellationToken,
+    ): CachedTokenEntry[] {
+        const key = `${document.uri.toString()}:${document.version}:${document.languageId}:${tokenMode}`;
+        const cached = this._documentCache.get(key);
+        if (cached && cached.version === document.version && cached.languageId === document.languageId) {
+            return cached.tokens;
+        }
+
+        const tokens: CachedTokenEntry[] = [];
+        const pushToken = (line: number, start: number, length: number, typeIndex: number, modifiers: number): void => {
+            tokens.push({ line, start, length, typeIndex, modifiers });
+        };
+
+        if (config.lineDocPrefix) {
+            this.processLineDoc(document, new vscode.Range(0, 0, document.lineCount - 1, Number.MAX_SAFE_INTEGER), config, pushToken, token, tokenMode);
+        }
+        if (config.blockDocStart) {
+            this.processBlockDoc(document, new vscode.Range(0, 0, document.lineCount - 1, Number.MAX_SAFE_INTEGER), config, pushToken, token, tokenMode);
+        }
+
+        this._documentCache.set(key, { version: document.version, languageId: document.languageId, tokenMode, tokens });
+        return tokens;
+    }
+
     private processLineDoc(
         document: vscode.TextDocument,
         range: vscode.Range,
         config: LanguageConfig,
-        builder: vscode.SemanticTokensBuilder,
+        pushToken: (line: number, start: number, length: number, typeIndex: number, modifiers: number) => void,
         token: vscode.CancellationToken,
+        tokenMode: 'structuredOnly' | 'full',
     ): void {
         const startLine = range.start.line;
         const endLine   = Math.min(range.end.line, document.lineCount - 1);
@@ -99,13 +150,13 @@ export class XmlDocSemanticTokensProvider
             const prefixCol = leadingSpaces(match[0]);
             const prefixLen = match[0].trim().length;
             if (prefixLen > 0) {
-                builder.push(li, prefixCol, prefixLen, TOKEN_TYPE_TO_INDEX[TOKEN_TYPES.xmlDocLinePrefix], 0);
+                pushToken(li, prefixCol, prefixLen, TOKEN_TYPE_TO_INDEX[TOKEN_TYPES.xmlDocLinePrefix], 0);
             }
 
             if (!content.trim()) { continue; }
 
-            for (const tok of parseDocLine(content)) {
-                builder.push(li, contentCol + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
+            for (const tok of parseDocLine(content, { includeText: tokenMode === 'full' })) {
+                pushToken(li, contentCol + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
             }
         }
     }
@@ -120,8 +171,9 @@ export class XmlDocSemanticTokensProvider
         document: vscode.TextDocument,
         range: vscode.Range,
         config: LanguageConfig,
-        builder: vscode.SemanticTokensBuilder,
+        pushToken: (line: number, start: number, length: number, typeIndex: number, modifiers: number) => void,
         token: vscode.CancellationToken,
+        tokenMode: 'structuredOnly' | 'full',
     ): void {
         const scanEnd   = Math.min(range.end.line, document.lineCount - 1);
         const emitStart = range.start.line;
@@ -144,7 +196,7 @@ export class XmlDocSemanticTokensProvider
 
                 // Emit /** prefix token
                 if (shouldEmit) {
-                    builder.push(li, openMatch.index, openMatch[0].trimEnd().length, prefixIdx, 0);
+                    pushToken(li, openMatch.index, openMatch[0].trimEnd().length, prefixIdx, 0);
                 }
 
                 // Single-line: /** content */
@@ -152,14 +204,14 @@ export class XmlDocSemanticTokensProvider
                 if (closeIdx !== -1) {
                     if (shouldEmit) {
                         const content = text.slice(afterOpen, closeIdx);
-                        this.emitLineTokens(content, afterOpen, li, builder);
+                        this.emitLineTokens(content, afterOpen, li, pushToken, tokenMode);
                         // Emit */ prefix token
-                        builder.push(li, closeIdx, 2, prefixIdx, 0);
+                        pushToken(li, closeIdx, 2, prefixIdx, 0);
                     }
                     inBlock = false;
                 } else if (shouldEmit) {
                     const content = text.slice(afterOpen);
-                    this.emitLineTokens(content, afterOpen, li, builder);
+                    this.emitLineTokens(content, afterOpen, li, pushToken, tokenMode);
                 }
             } else {
                 const closeIdx = text.indexOf('*/');
@@ -175,11 +227,11 @@ export class XmlDocSemanticTokensProvider
                         if (lineMatch) {
                             const pCol = leadingSpaces(lineMatch[0]);
                             const pLen = lineMatch[0].trim().length;
-                            if (pLen > 0) { builder.push(li, pCol, pLen, prefixIdx, 0); }
+                            if (pLen > 0) { pushToken(li, pCol, pLen, prefixIdx, 0); }
                         }
-                        this.emitLineTokens(content, colOffset, li, builder);
+                        this.emitLineTokens(content, colOffset, li, pushToken, tokenMode);
                         // Emit */ token
-                        builder.push(li, closeIdx, 2, prefixIdx, 0);
+                        pushToken(li, closeIdx, 2, prefixIdx, 0);
                     }
                     inBlock = false;
                 } else {
@@ -192,9 +244,9 @@ export class XmlDocSemanticTokensProvider
                         if (lineMatch) {
                             const pCol = leadingSpaces(lineMatch[0]);
                             const pLen = lineMatch[0].trim().length;
-                            if (pLen > 0) { builder.push(li, pCol, pLen, prefixIdx, 0); }
+                            if (pLen > 0) { pushToken(li, pCol, pLen, prefixIdx, 0); }
                         }
-                        this.emitLineTokens(content, colOffset, li, builder);
+                        this.emitLineTokens(content, colOffset, li, pushToken, tokenMode);
                     }
                 }
             }
@@ -205,15 +257,17 @@ export class XmlDocSemanticTokensProvider
         content: string,
         colOffset: number,
         lineIndex: number,
-        builder: vscode.SemanticTokensBuilder,
+        pushToken: (line: number, start: number, length: number, typeIndex: number, modifiers: number) => void,
+        tokenMode: 'structuredOnly' | 'full',
     ): void {
         if (!content.trim()) { return; }
-        for (const tok of parseDocLine(content)) {
-            builder.push(lineIndex, colOffset + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
+        for (const tok of parseDocLine(content, { includeText: tokenMode === 'full' })) {
+            pushToken(lineIndex, colOffset + tok.start, tok.length, TOKEN_TYPE_TO_INDEX[tok.type], 0);
         }
     }
 
     refresh(): void {
+        this._documentCache.clear();
         this._onDidChangeSemanticTokens.fire();
     }
 }
@@ -235,4 +289,29 @@ function isXmlDocColorEnabled(document: vscode.TextDocument): boolean {
 
 function emptyTokens(): vscode.SemanticTokens {
     return new vscode.SemanticTokensBuilder(LEGEND).build();
+}
+
+function isTokenInRange(entry: CachedTokenEntry, range: vscode.Range): boolean {
+    const line = entry.line;
+    const start = entry.start;
+    const end = entry.start + entry.length;
+
+    if (line < range.start.line || line > range.end.line) {
+        return false;
+    }
+
+    if (line === range.start.line && start < range.start.character) {
+        return false;
+    }
+
+    if (line === range.end.line && end > range.end.character) {
+        return false;
+    }
+
+    return true;
+}
+
+function getTokenMode(document: vscode.TextDocument): 'structuredOnly' | 'full' {
+    const config = vscode.workspace.getConfiguration('xmlDocColor', document);
+    return config.get<'structuredOnly' | 'full'>('tokenMode', 'structuredOnly') ?? 'structuredOnly';
 }
