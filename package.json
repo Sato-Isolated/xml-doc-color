@@ -1,8 +1,8 @@
 {
   "name": "xml-doc-color",
   "displayName": "XML Doc Color",
-  "description": "Colorize XML/Javadoc/TSDoc/JSDoc/PHPDoc/KDoc comments in C#, VB.NET, F#, Java, TypeScript, TSX, JavaScript, JSX, PHP and Kotlin",
-  "version": "0.0.5",
+  "description": "Colorize XML documentation and ordinary block comments with TextMate scopes in C#, VB.NET, F#, Java, TypeScript, TSX, JavaScript, JSX, PHP and Kotlin",
+  "version": "0.1.0",
   "publisher": "MindLated",
   "author": "MindLated",
   "homepage": "https://github.com/Sato-Isolated/xml-doc-color",
@@ -20,18 +20,29 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.120.0"
+    "vscode": "^1.74.0"
+  },
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": true
+    },
+    "untrustedWorkspaces": {
+      "supported": true
+    }
   },
   "categories": [
     "Other",
-    "Themes",
     "Programming Languages"
   ],
   "keywords": [
     "xml",
     "doc",
     "comment",
-    "semantic tokens",
+    "textmate",
     "csharp",
     "java",
     "javadoc",
@@ -43,7 +54,8 @@
     "color",
     "highlight"
   ],
-  "main": "./dist/extension.js",
+  "main": "./dist/node/extension.js",
+  "browser": "./dist/web/extension.js",
   "activationEvents": [
     "onLanguage:csharp",
     "onLanguage:vb",
@@ -66,6 +78,15 @@
         }
       ]
     },
+    "views": {
+      "xml-doc-color-sidebar": [
+        {
+          "type": "webview",
+          "id": "xmlDocColor.colorPicker",
+          "name": "Color Picker"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "xmlDocColor.openColorPicker",
@@ -73,18 +94,13 @@
         "category": "XML Doc Color"
       },
       {
-        "command": "xmlDocColor.toggleEnabled",
-        "title": "Toggle Enabled",
-        "category": "XML Doc Color"
-      },
-      {
         "command": "xmlDocColor.copyThemeRules",
-        "title": "Copy Theme Customization JSON",
+        "title": "Copy TextMate Customization JSON",
         "category": "XML Doc Color"
       },
       {
         "command": "xmlDocColor.openThemeSnippet",
-        "title": "Open Theme Customization Snippet",
+        "title": "Open TextMate Customization Snippet",
         "category": "XML Doc Color"
       }
     ],
@@ -95,9 +111,6 @@
           "when": "editorLangId == csharp || editorLangId == vb || editorLangId == fsharp || editorLangId == java || editorLangId == typescript || editorLangId == typescriptreact || editorLangId == javascript || editorLangId == javascriptreact || editorLangId == php || editorLangId == kotlin"
         },
         {
-          "command": "xmlDocColor.toggleEnabled"
-        },
-        {
           "command": "xmlDocColor.copyThemeRules"
         },
         {
@@ -105,205 +118,136 @@
         }
       ]
     },
-    "views": {
-      "xml-doc-color-sidebar": [
-        {
-          "type": "webview",
-          "id": "xmlDocColor.colorPicker",
-          "name": "Color Picker"
-        }
-      ]
-    },
-    "semanticTokenTypes": [
+    "grammars": [
       {
-        "id": "xmlDocTagDelimiter",
-        "superType": "operator",
-        "description": "Delimiter characters of an XML doc tag: <, >, </, />, <!--, -->"
+        "scopeName": "xml-doc-color.csharp.injection",
+        "path": "./dist/syntaxes/csharp.tmLanguage.json",
+        "injectTo": [
+          "source.cs"
+        ]
       },
       {
-        "id": "xmlDocTagName",
-        "superType": "type",
-        "description": "Name of an XML doc tag, e.g. summary, param, returns"
+        "scopeName": "xml-doc-color.vb.injection",
+        "path": "./dist/syntaxes/vb.tmLanguage.json",
+        "injectTo": [
+          "source.asp.vb.net"
+        ]
       },
       {
-        "id": "xmlDocAttribute",
-        "superType": "property",
-        "description": "Attribute name inside an XML doc tag, e.g. name, cref, href"
+        "scopeName": "xml-doc-color.fsharp.injection",
+        "path": "./dist/syntaxes/fsharp.tmLanguage.json",
+        "injectTo": [
+          "source.fsharp"
+        ]
       },
       {
-        "id": "xmlDocAttributeValue",
-        "superType": "string",
-        "description": "Attribute value inside an XML doc tag, e.g. \"paramName\""
+        "scopeName": "xml-doc-color.java.injection",
+        "path": "./dist/syntaxes/java.tmLanguage.json",
+        "injectTo": [
+          "source.java"
+        ]
       },
       {
-        "id": "xmlDocEntity",
-        "superType": "constant",
-        "description": "Named or numeric XML entity reference such as &amp; or &#xA;"
+        "scopeName": "xml-doc-color.java.regular-block.injection",
+        "path": "./dist/syntaxes/java.block.tmLanguage.json",
+        "injectTo": [
+          "source.java"
+        ]
       },
       {
-        "id": "xmlDocCDataDelimiter",
-        "superType": "operator",
-        "description": "CDATA delimiters: <![CDATA[ and ]]>"
+        "scopeName": "xml-doc-color.typescript.injection",
+        "path": "./dist/syntaxes/typescript.tmLanguage.json",
+        "injectTo": [
+          "source.ts"
+        ]
       },
       {
-        "id": "xmlDocCDataText",
-        "superType": "string",
-        "description": "Text content inside a CDATA section"
+        "scopeName": "xml-doc-color.typescript.regular-block.injection",
+        "path": "./dist/syntaxes/typescript.block.tmLanguage.json",
+        "injectTo": [
+          "source.ts"
+        ]
       },
       {
-        "id": "xmlDocInlineDelimiter",
-        "superType": "operator",
-        "description": "Inline doc tag delimiters such as { and }"
+        "scopeName": "xml-doc-color.typescriptreact.injection",
+        "path": "./dist/syntaxes/typescriptreact.tmLanguage.json",
+        "injectTo": [
+          "source.tsx"
+        ]
       },
       {
-        "id": "xmlDocReferenceValue",
-        "superType": "variable",
-        "description": "Reference-style values such as {@link Result} or cref/href targets"
+        "scopeName": "xml-doc-color.typescriptreact.regular-block.injection",
+        "path": "./dist/syntaxes/typescriptreact.block.tmLanguage.json",
+        "injectTo": [
+          "source.tsx"
+        ]
       },
       {
-        "id": "xmlDocAtTag",
-        "superType": "keyword",
-        "description": "@-style doc tag, e.g. @param, @returns, @link"
+        "scopeName": "xml-doc-color.javascript.injection",
+        "path": "./dist/syntaxes/javascript.tmLanguage.json",
+        "injectTo": [
+          "source.js"
+        ]
       },
       {
-        "id": "xmlDocLinePrefix",
-        "superType": "comment",
-        "description": "Doc comment line prefix marker: ///, ''', *, /**, */"
+        "scopeName": "xml-doc-color.javascript.regular-block.injection",
+        "path": "./dist/syntaxes/javascript.block.tmLanguage.json",
+        "injectTo": [
+          "source.js"
+        ]
       },
       {
-        "id": "xmlDocText",
-        "superType": "comment",
-        "description": "Plain text content in a doc comment (outside XML tags and @-tags)"
+        "scopeName": "xml-doc-color.javascriptreact.injection",
+        "path": "./dist/syntaxes/javascriptreact.tmLanguage.json",
+        "injectTo": [
+          "source.js.jsx"
+        ]
+      },
+      {
+        "scopeName": "xml-doc-color.javascriptreact.regular-block.injection",
+        "path": "./dist/syntaxes/javascriptreact.block.tmLanguage.json",
+        "injectTo": [
+          "source.js.jsx"
+        ]
+      },
+      {
+        "scopeName": "xml-doc-color.php.injection",
+        "path": "./dist/syntaxes/php.tmLanguage.json",
+        "injectTo": [
+          "source.php",
+          "text.html.php"
+        ]
+      },
+      {
+        "scopeName": "xml-doc-color.php.regular-block.injection",
+        "path": "./dist/syntaxes/php.block.tmLanguage.json",
+        "injectTo": [
+          "source.php",
+          "text.html.php"
+        ]
+      },
+      {
+        "scopeName": "xml-doc-color.kotlin.injection",
+        "path": "./dist/syntaxes/kotlin.tmLanguage.json",
+        "injectTo": [
+          "source.kotlin"
+        ]
+      },
+      {
+        "scopeName": "xml-doc-color.kotlin.regular-block.injection",
+        "path": "./dist/syntaxes/kotlin.block.tmLanguage.json",
+        "injectTo": [
+          "source.kotlin"
+        ]
       }
     ],
-    "semanticTokenScopes": [
-      {
-        "scopes": {
-          "xmlDocTagDelimiter": [
-            "punctuation.definition.tag"
-          ],
-          "xmlDocTagName": [
-            "entity.name.tag"
-          ],
-          "xmlDocAttribute": [
-            "entity.other.attribute-name"
-          ],
-          "xmlDocAttributeValue": [
-            "string.quoted.double"
-          ],
-          "xmlDocEntity": [
-            "constant.character.entity"
-          ],
-          "xmlDocCDataDelimiter": [
-            "punctuation.definition.cdata"
-          ],
-          "xmlDocCDataText": [
-            "string.unquoted.cdata"
-          ],
-          "xmlDocInlineDelimiter": [
-            "punctuation.definition.tag"
-          ],
-          "xmlDocReferenceValue": [
-            "variable.other.reference"
-          ],
-          "xmlDocAtTag": [
-            "keyword.other.documentation",
-            "storage.type.annotation"
-          ],
-          "xmlDocLinePrefix": [
-            "punctuation.definition.comment"
-          ],
-          "xmlDocText": [
-            "comment"
-          ]
-        }
-      }
-    ],
-    "configurationDefaults": {
-      "[csharp]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[vb]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[fsharp]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[java]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[typescript]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[typescriptreact]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[javascript]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[javascriptreact]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[php]": {
-        "editor.semanticHighlighting.enabled": true
-      },
-      "[kotlin]": {
-        "editor.semanticHighlighting.enabled": true
-      }
-    },
     "configuration": {
       "title": "XML Doc Color",
       "properties": {
-        "xmlDocColor.enabled": {
-          "type": "boolean",
-          "default": true,
-          "scope": "language-overridable",
-          "markdownDescription": "Enable XML documentation comment colorization. Can be overridden per language in workspace settings."
-        },
-        "xmlDocColor.enabledLanguages": {
-          "type": "array",
-          "default": [
-            "csharp",
-            "vb",
-            "fsharp",
-            "java",
-            "typescript",
-            "typescriptreact",
-            "javascript",
-            "javascriptreact",
-            "php",
-            "kotlin"
-          ],
-          "items": {
-            "type": "string",
-            "enum": [
-              "csharp",
-              "vb",
-              "fsharp",
-              "java",
-              "typescript",
-              "typescriptreact",
-              "javascript",
-              "javascriptreact",
-              "php",
-              "kotlin"
-            ]
-          },
-          "markdownDescription": "Subset of supported languages where XML Doc Color should stay active."
-        },
         "xmlDocColor.showStatusItem": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show the XML Doc Color language status item when a supported editor is open."
-        },
-        "xmlDocColor.tokenMode": {
-          "type": "string",
-          "default": "structuredOnly",
-          "enum": [
-            "structuredOnly",
-            "full"
-          ],
-          "markdownDescription": "Controls how much of documentation comments is tokenized. `structuredOnly` colors XML/doc structure and references; `full` also colors plain prose text."
         },
         "xmlDocColor.configurationTarget": {
           "type": "string",
@@ -313,41 +257,61 @@
             "workspace"
           ],
           "markdownEnumDescriptions": [
-            "Write color overrides and toggles to your global user settings.",
-            "Write color overrides and toggles to the current workspace settings."
+            "Write TextMate color overrides to your global user settings.",
+            "Write TextMate color overrides to the current workspace settings."
           ],
-          "markdownDescription": "Where XML Doc Color should persist settings changed from commands or the sidebar."
+          "markdownDescription": "Where XML Doc Color should persist colors changed from commands or the sidebar."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "generate-grammars": "tsx src/generateGrammars.ts",
+    "compile": "npm run check-types && npm run lint && npm run generate-grammars && node esbuild.js",
+    "prewatch": "npm run generate-grammars",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "npm run check-types && npm run lint && npm run generate-grammars && node esbuild.js --production",
     "vsix": "vsce package --out xml-doc-color.vsix",
     "vsix:install": "npm run vsix && code --install-extension xml-doc-color.vsix --force",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "npm run compile-tests && npm run compile",
+    "pretest:webview": "npm run compile-tests && npm run compile",
+    "pretest:web": "npm run compile",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "lint": "eslint src --max-warnings=0",
+    "test": "vscode-test --timeout 10000",
+    "test:desktop:min": "vscode-test --code-version 1.74.0 --timeout 10000",
+    "test:desktop:stable": "vscode-test --timeout 10000",
+    "test:webview": "playwright test test/webview.spec.cjs",
+    "test:web": "vscode-test-web --quality stable --browser=chromium --esm=true --port=3025 --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/smoke.js",
+    "test:all": "npm-run-all test test:webview test:web"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.19",
-    "@types/vscode": "^1.120.0",
-    "@vscode/test-cli": "^0.0.12",
+    "@types/vscode": "1.74.0",
+    "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-web": "^0.0.81",
     "@vscode/vsce": "^3.9.1",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.3",
     "npm-run-all": "^4.1.5",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.1"
+  },
+  "overrides": {
+    "mocha": {
+      "diff": "8.0.3",
+      "serialize-javascript": "7.0.5"
+    }
   }
 }

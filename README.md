@@ -1,136 +1,149 @@
-﻿# XML Doc Color
+# XML Doc Color
 
 [![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-xml--doc--color-blue?style=flat-square&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=MindLated.xml-doc-color)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Sato-Isolated/xml-doc-color?style=flat-square)](https://github.com/Sato-Isolated/xml-doc-color)
 
-Bring your XML documentation comments to life. **XML Doc Color** uses semantic highlighting to give distinct colors to every part of a doc comment — tag names, delimiters, attributes, values, entities, CDATA, inline references, `@`-tags, prefixes, and plain text — across 10 languages, including TSX and JSX.
+XML Doc Color adds precise TextMate scopes to XML documentation, Javadoc, TSDoc, JSDoc, PHPDoc, KDoc and ordinary block comments, including `/*** … */` forms. It colors tags, delimiters, attributes, entities, references, CDATA, `@`-tags, prefixes and prose without replacing the semantic token provider supplied by your language extension.
 
 ![XML Doc Color sidebar and highlighted code](img/image.png)
 
----
-
 ## Features
 
-- **Semantic highlighting** for XML doc comments (`///`, `'''`, `/** */`) across 10 languages, including TSX and JSX
-- **12 individually configurable token types** — fully customizable via the sidebar Color Picker or your theme JSON
-- **Sidebar Color Picker** — per-language color overrides with live preview, presets, inherited-theme reset, JSON export, and instant apply
-- **Two bundled themes** — *XML Doc Color Dark* and *XML Doc Color Light* for explicit, zero-config color control
-- **Helpful commands** — toggle the extension, copy semantic-token JSON, or open a ready-to-paste snippet
-- **Fine-grained settings** — enable only selected languages, hide the status item, and choose whether changes write to global or workspace settings
-- **`xmlDocColor.enabled` setting** — disable the extension entirely without uninstalling
+- Seventeen TextMate injection grammars that coexist with C#, TypeScript, Java and Kotlin language services
+- Ten supported VS Code language IDs, including TSX and JSX
+- Thirteen independently configurable documentation token categories
+- Global colors with optional per-language overrides
+- Dark, Light, Custom and Inherited Theme modes
+- A typed, keyboard-accessible sidebar with persistent per-language drafts
+- Desktop, remote, virtual workspace and VS Code Web support
+- Automatic migration from XML Doc Color 0.0.x semantic color rules
 
----
+## Supported languages
 
-## Supported Languages
-
-| Language | Comment style | Doc format |
+| Language | Comment style | Documentation format |
 |---|---|---|
-| C# | `///` | XML doc comments |
-| F# | `///` | XML doc comments |
-| VB.NET | `'''` | XML doc comments |
-| Java | `/** … */` | Javadoc |
-| TypeScript | `/** … */` | TSDoc / JSDoc |
-| TSX | `/** … */` | TSDoc / JSDoc |
-| JavaScript | `/** … */` | JSDoc |
-| JSX | `/** … */` | JSDoc |
-| PHP | `/** … */` | PHPDoc |
-| Kotlin | `/** … */` | KDoc |
+| C# | `///` | XML documentation |
+| VB.NET | `'''` | XML documentation |
+| F# | `///` | XML documentation |
+| Java | `/** … */`, `/* … */`, `/*** … */` | Javadoc and owned block comments |
+| TypeScript / TSX | `/** … */`, `/* … */`, `/*** … */` | TSDoc/JSDoc and owned block comments |
+| JavaScript / JSX | `/** … */`, `/* … */`, `/*** … */` | JSDoc and owned block comments |
+| PHP | `/** … */`, `/* … */`, `/*** … */` | PHPDoc and owned PHP block comments |
+| Kotlin | `/** … */`, `/* … */`, `/*** … */` | KDoc and owned block comments |
 
----
+Owned `/* … */` and three-or-more-star comments in these seven block-comment languages use the same thirteen-color palette. Exact `/** … */` delimiters remain native to Javadoc/JSDoc/PHPDoc/KDoc. Comment-like text inside strings, templates, regular expressions, line comments, or embedded CSS in PHP/HTML files is left to the host grammar. C# remains limited to `///` documentation.
 
-## Token Colors
+## Color picker
 
-All 12 token types inherit from standard VS Code token types so they work out of the box with any theme. Each can be overridden individually.
+Open the XML Doc Color view from the Activity Bar or run **XML Doc Color: Open Color Picker**.
 
-| Token type | Colors | Inherits from |
-|---|---|---|
-| `xmlDocTagName` | `<summary>`, `<param>`, `<returns>` … | `type` |
-| `xmlDocTagDelimiter` | `<`, `>`, `</`, `/>`, `<!--`, `-->` | `operator` |
-| `xmlDocAttribute` | `name`, `cref`, `href` … | `property` |
-| `xmlDocAttributeValue` | `"paramName"` … | `string` |
-| `xmlDocEntity` | `&amp;`, `&#xA;` … | `constant` |
-| `xmlDocCDataDelimiter` | `<![CDATA[` / `]]>` | `operator` |
-| `xmlDocCDataText` | Text inside CDATA blocks | `string` |
-| `xmlDocInlineDelimiter` | `{`, `}` in `{@link Result}` | `operator` |
-| `xmlDocReferenceValue` | `Result`, `cref`, `href` targets | `variable` |
-| `xmlDocAtTag` | `@param`, `@returns`, `@link` … | `keyword` |
-| `xmlDocLinePrefix` | `///`, `'''`, `*`, `/**`, `*/` | `comment` |
-| `xmlDocText` | Plain text between tags | `comment` |
+1. Select **All Languages** or one language.
+2. Keep the inherited theme colors, choose a preset, or edit any of the thirteen hexadecimal colors.
+3. Apply the rules to your global settings or the current workspace.
+4. Use **Copy JSON** to export the corresponding `editor.tokenColorCustomizations` snippet.
+5. Use **Reset** to remove only XML Doc Color rules for the selected scope.
 
----
+All-language rules are applied first. A language rule is more specific and therefore wins for that language. Resetting one language falls back to the all-language rule and then to the active theme.
 
-## Color Picker
+## TextMate scopes
 
-Open the sidebar panel via the **XML Doc Color** icon in the Activity Bar, or run **XML Doc Color: Open Color Picker** from the Command Palette (`Ctrl+Shift+P`).
+Every category uses a stable scope suffixed with the VS Code language ID. Examples:
 
-- Pick a language from the dropdown
-- Choose a preset: **Default**, **Dark**, **Light**, or **Reset to inherited theme**
-- Adjust any token color using the color inputs
-- See which rows are currently **Inherited** versus explicitly **Overridden**
-- Hit **Apply** to write the colors to your VS Code settings instantly
-- Use **Copy JSON** to export the exact semantic-token rules for the selected scope
-- Use **Reset** to revert a language back to inherited/global defaults
+- `entity.name.tag.xml-doc-color.typescript`
+- `punctuation.definition.tag.xml-doc-color.csharp`
+- `variable.other.reference.documentation.xml-doc-color.java`
+- `keyword.other.documentation.xml-doc-color.kotlin`
+- `punctuation.definition.comment.block.xml-doc-color.typescript`
+- `comment.documentation.xml-doc-color.php`
 
-### Example Theme JSON
+**Block comment delimiters** controls owned `/*`, `/***`, `/****` and `*/`
+markers. **Comment prefix** controls `///`, `'''` and interior multiline `*`
+prefixes. **Tag delimiters** controls XML punctuation such as `<`, `>`, `</`
+and `/>`.
+
+The owned block region also carries a standard `comment.block` parent scope.
+This lets normal theme rules such as `comment` color a new block delimiter in
+**Inherited Theme** mode without requiring access to private theme variables.
+
+The sidebar writes named rules such as:
 
 ```jsonc
 {
-  "editor.semanticTokenColorCustomizations": {
-    "rules": {
-      "xmlDocTagName": { "foreground": "#4EC9B0", "bold": true },
-      "xmlDocTagDelimiter": "#6D8B6D",
-      "xmlDocAttribute": "#9CDCFE",
-      "xmlDocAttributeValue": "#CE9178",
-      "xmlDocAtTag": { "foreground": "#C586C0", "bold": true },
-      "xmlDocLinePrefix": "#6A9955",
-      "xmlDocText": "#D4D4D4"
-    }
+  "editor.tokenColorCustomizations": {
+    "textMateRules": [
+      {
+        "name": "XML Doc Color / xmlDocTagName / typescript",
+        "scope": "entity.name.tag.xml-doc-color.typescript",
+        "settings": {
+          "foreground": "#4EC9B0",
+          "fontStyle": "bold"
+        }
+      }
+    ]
   }
 }
 ```
 
-To scope colors to one language, suffix the token with `:languageId`, for example `xmlDocTagName:typescript`.
+Rules not created by XML Doc Color are preserved when colors are applied or reset.
 
-## Why semantic highlighting may need to be enabled
+Applying a palette to **All Languages** removes existing XML Doc Color
+language overrides so the selected palette takes effect in every supported
+language. Resetting **All Languages** removes only the global rules and keeps
+any language overrides created afterwards.
 
-XML Doc Color contributes semantic token types, so your editor theme must allow semantic highlighting.
+## Migration from 0.0.x
 
-- This extension enables `editor.semanticHighlighting.enabled` by default for supported languages
-- If another setting or theme disables semantic highlighting, colors may not appear
-- Use the status item or reopen the color picker after changing theme settings if the preview and editor look out of sync
+On first activation of 0.1.0, XML Doc Color scans the global and workspace values of `editor.semanticTokenColorCustomizations`. Rules owned by the extension are converted to equivalent TextMate rules in the same configuration layer, including language and theme-specific entries.
 
----
+The new rules are written and verified before the legacy keys are removed. Unrelated semantic and TextMate customizations are never changed. If migration cannot be verified, the legacy rules remain in place and an error is shown.
+
+The old `xmlDocColor.enabled`, `xmlDocColor.enabledLanguages` and `xmlDocColor.tokenMode` settings were removed because TextMate grammars are declarative and stay active while the extension is installed. With no explicit override, the new scopes inherit your active theme.
+
+Existing twelve-color TextMate palettes are not rewritten automatically. The
+new block-delimiter category inherits the theme until the next **Apply**, which
+writes the complete thirteen-color palette.
 
 ## Settings
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `xmlDocColor.enabled` | `boolean` | `true` | Enable or disable XML doc comment colorization entirely |
-| `xmlDocColor.enabledLanguages` | `string[]` | all supported languages | Limit XML Doc Color to a subset of supported languages |
-| `xmlDocColor.showStatusItem` | `boolean` | `true` | Show the XML Doc Color language status item |
-| `xmlDocColor.configurationTarget` | `"global" \| "workspace"` | `"global"` | Choose where sidebar and command changes are persisted |
-| `xmlDocColor.tokenMode` | `"structuredOnly" \| "full"` | `"structuredOnly"` | Control whether the provider colors only structured doc syntax or also plain prose text |
-
----
+| Setting | Default | Description |
+|---|---|---|
+| `xmlDocColor.showStatusItem` | `true` | Show the language status item in supported editors |
+| `xmlDocColor.configurationTarget` | `"global"` | Write sidebar changes to global or workspace settings |
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `XML Doc Color: Open Color Picker` | Opens the sidebar Color Picker panel |
-| `XML Doc Color: Toggle Enabled` | Enables or disables XML Doc Color using your configured settings target |
-| `XML Doc Color: Copy Theme Customization JSON` | Copies the current scope's semantic-token rules to the clipboard |
-| `XML Doc Color: Open Theme Customization Snippet` | Opens a ready-to-edit JSON snippet in a new editor |
+| `XML Doc Color: Open Color Picker` | Focus the sidebar color editor |
+| `XML Doc Color: Copy TextMate Customization JSON` | Copy rules for the active language or all languages |
+| `XML Doc Color: Open TextMate Customization Snippet` | Open editable JSONC in a new editor |
 
----
+## Troubleshooting
+
+- Run **Developer: Inspect Editor Tokens and Scopes** to inspect the generated TextMate scopes.
+- Run **Developer: Reload Window** once after installing or updating a local VSIX so VS Code reloads grammar contributions.
+- If a workspace target is selected, open a folder or workspace before applying colors.
+- Reset the selected scope to check the active theme's inherited colors.
+- Report grammar conflicts with a small documentation-comment sample and the language extension/version in use.
+
+## Development
+
+```powershell
+npm install
+npm run compile
+npm test
+npm run test:webview
+npm run test:web
+npm run vsix
+```
+
+The build generates seventeen injection grammars in `dist/syntaxes`, desktop and WebWorker extension bundles, and a separate browser bundle for the sidebar.
 
 ## Links
 
-- [GitHub Repository](https://github.com/Sato-Isolated/xml-doc-color)
-- [Report an Issue](https://github.com/Sato-Isolated/xml-doc-color/issues)
-- [Changelog](https://github.com/Sato-Isolated/xml-doc-color/blob/main/CHANGELOG.md)
-
----
+- [GitHub repository](https://github.com/Sato-Isolated/xml-doc-color)
+- [Report an issue](https://github.com/Sato-Isolated/xml-doc-color/issues)
+- [Changelog](CHANGELOG.md)
 
 Made by [MindLated](https://github.com/Sato-Isolated)

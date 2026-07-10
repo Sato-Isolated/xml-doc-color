@@ -4,6 +4,37 @@ All notable changes to the "xml-doc-color" extension will be documented in this 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.1.0] - 2026-07-10
+
+### Changed
+
+- Replaced the runtime semantic token provider with seventeen TextMate injection grammars so XML Doc Color coexists with language-server semantic highlighting
+- Added full `/* … */` block-comment coloring for Java, JavaScript, JSX, TypeScript, TSX, PHP and Kotlin without intercepting strings, regexes, templates or embedded CSS
+- Moved color customization to named `editor.tokenColorCustomizations.textMateRules` with global and per-language precedence
+- Rebuilt the color picker as a typed, CSP-safe and keyboard-accessible webview with all thirteen token categories and persistent drafts
+- Added separate desktop, WebWorker and webview bundles, including virtual workspace and VS Code Web support
+- Lowered the minimum supported VS Code version to 1.74.0
+
+### Migration
+
+- Automatically moves XML Doc Color rules from `editor.semanticTokenColorCustomizations` after the matching TextMate rules have been written and verified
+- Preserves unrelated semantic and TextMate rules in global, workspace, language and theme-specific configuration blocks
+
+### Removed
+
+- Removed `xmlDocColor.enabled`, `xmlDocColor.enabledLanguages`, `xmlDocColor.tokenMode` and the Toggle Enabled command because declarative TextMate grammars remain active while installed
+- Removed the semantic token legend, full-document parser, cache and range provider
+
+### Fixed
+
+- Fixed the sidebar contract mismatch that sent seven colors while the extension required twelve
+- Prevented global/workspace settings from being copied across configuration layers
+- Fixed **All Languages** palettes being masked by previously saved language-specific overrides
+- Colored block comments beginning with three or more stars (`/*** … */`) while keeping exact `/** … */` comments on the native documentation path
+- Added an independent block-comment delimiter color, complete opener capture and a standard `comment.block` parent for theme inheritance
+- Fixed Javadoc/JSDoc block injections so XML attributes are colored and `*/` reliably returns to source-code tokenization
+- Added grammar, migration, Extension Host and browser-level webview tests
+
 ## [0.0.5] - 2026-06-12
 
 ### Added

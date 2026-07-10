@@ -1,627 +1,814 @@
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { getThemeCustomizationSnippet, readColors, readResolvedColors, resetColors, writeColors } from '../colorConfig';
-import { normalizeWebviewMessage } from '../colorPickerView';
-import { getEnabledLanguages, getSidebarPreviewData, SUPPORTED_LANGUAGES } from '../languages';
-import { parseDocLine, TOKEN_TYPES } from '../parser';
-import { XmlDocSemanticTokensProvider } from '../provider';
+import { createOnigScanner, createOnigString, loadWASM } from 'vscode-oniguruma';
+import { IGrammar, INITIAL, IRawGrammar, Registry, StateStack } from 'vscode-textmate';
+import {
+    getThemeCustomizationSnippet,
+    migrateCustomizationValues,
+    persistMigration,
+    readResolvedColors,
+    resetColors,
+    TextMateRule,
+    TokenColorCustomizations,
+    writeColors,
+} from '../colorConfig';
+import { normalizeWebviewMessage } from '../messages';
+import { createGrammar, createRegularBlockGrammar } from '../generateGrammars';
+import { getSidebarPreviewData } from '../languages';
+import {
+    DARK_PRESET_COLORS,
+    DocColors,
+    getTokenKeysForLanguage,
+    getTokenScope,
+    LANGUAGE_DEFINITIONS,
+    LIGHT_PRESET_COLORS,
+    REGULAR_BLOCK_LANGUAGE_IDS,
+    SUPPORTED_LANGUAGES,
+    TOKEN_DEFINITIONS,
+    TOKEN_KEYS,
+    TokenKey,
+} from '../model';
 
-suite('Sidebar Preview Data', () => {
-	test('provides one option and one preview per supported language', () => {
-		const previewData = getSidebarPreviewData();
-		const optionIds = new Set(previewData.options.map((option) => option.id));
+function testColors(seed = 1): DocColors {
+    const colors = {} as DocColors;
+    TOKEN_KEYS.forEach((key, index) => {
+        const value = (seed + index) % 256;
+        colors[key] = `#${value.toString(16).padStart(2, '0').repeat(3)}`.toUpperCase();
+    });
+    return colors;
+}
 
-		assert.ok(optionIds.has('*'));
-		assert.ok(previewData.previews['*']);
+function allScopes(tokens: ReturnType<IGrammar['tokenizeLine']>['tokens']): string[] {
+    return tokens.flatMap((token) => token.scopes);
+}
 
-		for (const languageId of SUPPORTED_LANGUAGES) {
-			assert.ok(optionIds.has(languageId), `missing selector option for ${languageId}`);
-			assert.ok(previewData.previews[languageId], `missing preview for ${languageId}`);
-		}
+function grammarFiles(directory: string): string[] {
+    return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const entryPath = path.join(directory, entry.name);
+        return entry.isDirectory() ? grammarFiles(entryPath) : [entryPath];
+    });
+}
 
-		assert.strictEqual(previewData.options.length, SUPPORTED_LANGUAGES.length + 1);
+suite('Shared model and manifest', () => {
+    test('defines exactly ten languages and thirteen unique token scopes', () => {
+        assert.strictEqual(LANGUAGE_DEFINITIONS.length, 10);
+        assert.strictEqual(TOKEN_DEFINITIONS.length, 13);
+        assert.strictEqual(new Set(SUPPORTED_LANGUAGES).size, 10);
+        assert.strictEqual(new Set(TOKEN_KEYS).size, 13);
 
-		const previewIds = new Set(Object.keys(previewData.previews));
-		assert.strictEqual(previewIds.size, SUPPORTED_LANGUAGES.length + 1);
-	});
+        const blockDelimiter = TOKEN_DEFINITIONS.find(({ key }) => key === 'xmlDocBlockDelimiter');
+        assert.deepStrictEqual(blockDelimiter?.languageIds, REGULAR_BLOCK_LANGUAGE_IDS);
+        assert.strictEqual(getTokenKeysForLanguage('typescript').length, 13);
+        assert.strictEqual(getTokenKeysForLanguage('csharp').length, 12);
 
-	test('shows @-tags only for block-doc languages', () => {
-		const previewData = getSidebarPreviewData();
+        for (const language of LANGUAGE_DEFINITIONS) {
+            const scopes = TOKEN_KEYS.map((key) => getTokenScope(key, language.id));
+            assert.strictEqual(new Set(scopes).size, TOKEN_KEYS.length);
+            assert.ok(scopes.every((scope) => scope.endsWith(`.${language.id}`)));
+        }
+    });
 
-		for (const languageId of ['csharp', 'vb', 'fsharp']) {
-			assert.strictEqual(previewData.previews[languageId].usesAtTags, false, `${languageId} should hide @-tags`);
-		}
+    test('contributes seventeen grammars and no semantic token provider declarations', () => {
+        const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
+        assert.ok(extension);
+        const contributions = extension.packageJSON.contributes as Record<string, unknown>;
+        assert.strictEqual((contributions.grammars as unknown[]).length, 17);
+        assert.strictEqual(contributions.semanticTokenTypes, undefined);
+        assert.strictEqual(contributions.semanticTokenScopes, undefined);
+        assert.strictEqual(extension.packageJSON.browser, './dist/web/extension.js');
+        assert.strictEqual(extension.packageJSON.version, '0.1.0');
 
-		for (const languageId of ['*', 'java', 'typescript', 'javascript', 'php', 'kotlin']) {
-			assert.strictEqual(previewData.previews[languageId].usesAtTags, true, `${languageId} should show @-tags`);
-		}
-	});
+        const regularBlockLanguages = LANGUAGE_DEFINITIONS.filter(({ regularBlockSelectors }) => regularBlockSelectors);
+        assert.strictEqual(regularBlockLanguages.length, 7);
+        assert.strictEqual(LANGUAGE_DEFINITIONS.find(({ id }) => id === 'csharp')?.regularBlockSelectors, undefined);
+        assert.deepStrictEqual(LANGUAGE_DEFINITIONS.find(({ id }) => id === 'php')?.regularBlockSelectors, ['source.php']);
+    });
 
-	test('tracks which token rows are shown by each preview', () => {
-		const previewData = getSidebarPreviewData();
-		const xmlDocTokens = ['xmlDocTagName', 'xmlDocTagDelimiter', 'xmlDocAttribute', 'xmlDocAttributeValue', 'xmlDocLinePrefix', 'xmlDocText'];
-		const blockDocTokens = [...xmlDocTokens.slice(0, 4), 'xmlDocAtTag', 'xmlDocLinePrefix', 'xmlDocText'];
+    test('coexists with the native TypeScript semantic token provider', async () => {
+        const typescriptExtension = vscode.extensions.getExtension('vscode.typescript-language-features');
+        assert.ok(typescriptExtension);
+        await typescriptExtension.activate();
 
-		for (const languageId of ['csharp', 'vb', 'fsharp']) {
-			assert.deepStrictEqual(
-				previewData.previews[languageId].usedTokenKeys,
-				xmlDocTokens,
-				`${languageId} should preview every XML-doc token color`,
-			);
-		}
+        const document = await vscode.workspace.openTextDocument({
+            language: 'typescript',
+            content: [
+                '/** <summary>Native semantic tokens stay available.</summary> */',
+                'export class Example {',
+                '    public value = 1;',
+                '}',
+            ].join('\n'),
+        });
+        const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+            '_provideDocumentSemanticTokensLegend',
+            document.uri,
+        );
+        const tokens = await vscode.commands.executeCommand<Uint8Array>(
+            '_provideDocumentSemanticTokens',
+            document.uri,
+        );
 
-		for (const languageId of ['*', 'java', 'typescript', 'javascript', 'php', 'kotlin']) {
-			assert.deepStrictEqual(
-				previewData.previews[languageId].usedTokenKeys,
-				blockDocTokens,
-				`${languageId} should preview every block-doc token color`,
-			);
-		}
-	});
+        assert.ok(legend.tokenTypes.length > 0);
+        assert.ok(tokens.byteLength > 12);
+    });
 
-	test('uses the correct block comment prefixes for block-doc languages', () => {
-		const previewData = getSidebarPreviewData();
-
-		for (const languageId of ['java', 'typescript', 'javascript', 'php', 'kotlin']) {
-			const lines = previewData.previews[languageId].lines;
-			assert.strictEqual(lines[0].prefix, '/**', `${languageId} should start with /**`);
-			assert.ok(lines.some((line) => line.prefix === ' * '), `${languageId} should have continuation lines`);
-			assert.strictEqual(lines[lines.length - 1].prefix, ' */', `${languageId} should close with */`);
-		}
-	});
-
-	test('keeps distinct preview content per language family', () => {
-		const previewData = getSidebarPreviewData();
-
-		assert.ok(previewData.previews.csharp.lines.some((line) => line.text.includes('<typeparam name="T">')));
-		assert.ok(previewData.previews.vb.lines.every((line) => line.prefix.startsWith("'''") || line.prefix === ''));
-		assert.ok(previewData.previews.fsharp.lines.some((line) => line.text.includes('<typeparam name="\'T">')));
-		assert.ok(previewData.previews.java.lines.some((line) => line.text.includes('@param <T> element type')));
-		assert.ok(previewData.previews.typescript.lines.some((line) => line.text.includes('@typeParam T - Element type')));
-		assert.ok(previewData.previews.javascript.lines.some((line) => line.text.includes('@param {number} count Maximum items to read')));
-		assert.ok(previewData.previews.php.lines.some((line) => line.text.includes('@param list<T> $source Input sequence')));
-		assert.ok(previewData.previews.kotlin.lines.some((line) => line.text.includes('@see Options')));
-	});
+    test('builds preview data for every language with all token rows available', () => {
+        const data = getSidebarPreviewData();
+        assert.strictEqual(data.options.length, LANGUAGE_DEFINITIONS.length + 1);
+        assert.strictEqual(Object.keys(data.previews).length, LANGUAGE_DEFINITIONS.length + 1);
+        assert.deepStrictEqual(new Set(data.previews['*'].usedTokenKeys), new Set(TOKEN_KEYS));
+    });
 });
 
-suite('parseDocLine', () => {
-	test('recognizes TSX/JSX as supported languages', () => {
-		assert.ok(SUPPORTED_LANGUAGES.includes('typescriptreact'));
-		assert.ok(SUPPORTED_LANGUAGES.includes('javascriptreact'));
-		assert.ok(getEnabledLanguages().includes('typescriptreact'));
-		assert.ok(getEnabledLanguages().includes('javascriptreact'));
-	});
+suite('Generated TextMate grammars', () => {
+    let onigLib: Promise<{
+        createOnigScanner: typeof createOnigScanner;
+        createOnigString: typeof createOnigString;
+    }>;
 
-	test('tokenizes entities, CDATA, and inline references', () => {
-		const tokens = parseDocLine('Use &amp; &lt;tag&gt; and <![CDATA[text]]> {@link Result}');
+    suiteSetup(() => {
+        const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
+        const data = wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.byteLength);
+        onigLib = loadWASM(data).then(() => ({ createOnigScanner, createOnigString }));
+    });
 
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocEntity));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocCDataDelimiter));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocCDataText));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocInlineDelimiter));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocReferenceValue));
-	});
+    async function loadGeneratedGrammar(languageId: string): Promise<IGrammar> {
+        const language = LANGUAGE_DEFINITIONS.find(({ id }) => id === languageId);
+        assert.ok(language);
+        const raw = createGrammar(language) as unknown as IRawGrammar;
+        const registry = new Registry({
+            onigLib,
+            loadGrammar: async (scopeName) => scopeName === raw.scopeName ? raw : null,
+        });
+        return registry.addGrammar(raw);
+    }
 
-	test('parses XML tags with attributes and closing tags', () => {
-		const tokens = parseDocLine('<param name="source">Input</param>');
+    async function loadRegularBlockGrammar(languageId: string): Promise<IGrammar> {
+        const language = LANGUAGE_DEFINITIONS.find(({ id }) => id === languageId);
+        assert.ok(language);
+        const generated = createRegularBlockGrammar(language);
+        assert.ok(generated);
+        const raw = generated as unknown as IRawGrammar;
+        const registry = new Registry({
+            onigLib,
+            loadGrammar: async (scopeName) => scopeName === raw.scopeName ? raw : null,
+        });
+        return registry.addGrammar(raw);
+    }
 
-		assert.deepStrictEqual(tokens, [
-			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 0, length: 1 },
-			{ type: TOKEN_TYPES.xmlDocTagName, start: 1, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocAttribute, start: 7, length: 4 },
-			{ type: TOKEN_TYPES.xmlDocAttributeValue, start: 12, length: 8 },
-			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 20, length: 1 },
-			{ type: TOKEN_TYPES.xmlDocText, start: 21, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 26, length: 2 },
-			{ type: TOKEN_TYPES.xmlDocTagName, start: 28, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 33, length: 1 },
-		]);
-	});
+    async function loadWithBuiltInHost(languageId: string, requestedHostScope?: string): Promise<IGrammar> {
+        const language = LANGUAGE_DEFINITIONS.find(({ id }) => id === languageId);
+        assert.ok(language);
+        const injection = createGrammar(language) as unknown as IRawGrammar;
+        const regularBlock = createRegularBlockGrammar(language) as unknown as IRawGrammar | undefined;
+        const rawByScope = new Map<string, IRawGrammar>();
+        const builtInExtensions = path.join(vscode.env.appRoot, 'extensions');
 
-	test('parses inline and standalone @-tags', () => {
-		const tokens = parseDocLine('{@link Result} and @param source');
+        for (const grammarPath of grammarFiles(builtInExtensions).filter((file) => /tmLanguage\.json$/i.test(file))) {
+            try {
+                const raw = JSON.parse(fs.readFileSync(grammarPath, 'utf8')) as IRawGrammar;
+                if (raw.scopeName) {
+                    rawByScope.set(raw.scopeName, raw);
+                }
+            } catch {
+                // Some built-in extensions contain generated assets that are not JSON grammars.
+            }
+        }
+        rawByScope.set(injection.scopeName, injection);
+        if (regularBlock) {
+            rawByScope.set(regularBlock.scopeName, regularBlock);
+        }
+        const injectionScopes = [
+            injection.scopeName,
+            ...(regularBlock ? [regularBlock.scopeName] : []),
+        ];
 
-		assert.deepStrictEqual(tokens, [
-			{ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: 0, length: 1 },
-			{ type: TOKEN_TYPES.xmlDocAtTag, start: 1, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocReferenceValue, start: 7, length: 6 },
-			{ type: TOKEN_TYPES.xmlDocInlineDelimiter, start: 13, length: 1 },
-			{ type: TOKEN_TYPES.xmlDocText, start: 14, length: 5 },
-			{ type: TOKEN_TYPES.xmlDocAtTag, start: 19, length: 6 },
-			{ type: TOKEN_TYPES.xmlDocText, start: 25, length: 7 },
-		]);
-	});
+        const registry = new Registry({
+            onigLib,
+            loadGrammar: async (scopeName) => rawByScope.get(scopeName) ?? null,
+            getInjections: (scopeName) => language.sourceScopes.includes(scopeName)
+                ? injectionScopes
+                : [],
+        });
+        const grammar = await registry.loadGrammar(requestedHostScope ?? language.sourceScopes[0]);
+        assert.ok(grammar);
+        return grammar;
+    }
 
-	test('emits delimiter tokens for unterminated XML comments without hanging', () => {
-		const tokens = parseDocLine('<!-- comment');
+    function tokenizeLines(grammar: IGrammar, lines: readonly string[]): ReturnType<IGrammar['tokenizeLine']>['tokens'][] {
+        let stack: StateStack = INITIAL;
+        return lines.map((line) => {
+            const result = grammar.tokenizeLine(line, stack);
+            stack = result.ruleStack;
+            return result.tokens;
+        });
+    }
 
-		assert.deepStrictEqual(tokens, [
-			{ type: TOKEN_TYPES.xmlDocTagDelimiter, start: 0, length: 4 },
-		]);
-	});
+    for (const definition of LANGUAGE_DEFINITIONS) {
+        test(`emits XML documentation scopes for ${definition.id}`, async () => {
+            const grammar = await loadGeneratedGrammar(definition.id);
+            const prefix = definition.documentationStyle === 'line' ? `${definition.linePrefix} ` : ' * ';
+            const lines = [
+                `${prefix}<!-- note -->`,
+                `${prefix}<![CDATA[value <not-a-tag>]]>`,
+                `${prefix}<summary title="Docs" cref='Result'>Value &amp;</summary>`,
+                `${prefix}{@link Result} @param source`,
+            ];
+            const scopes = tokenizeLines(grammar, lines).flatMap(allScopes);
+            const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
+            assert.ok(extension);
+            const snapshot = JSON.parse(fs.readFileSync(
+                path.join(extension.extensionPath, 'test', 'grammar-snapshots.json'),
+                'utf8',
+            )) as { expectedScopeBases: string[] };
+            const expected = snapshot.expectedScopeBases.map((base) => `${base}.${definition.id}`).sort();
+            const actual = [...new Set(scopes.filter((candidate) => (
+                candidate.includes('.xml-doc-color.') && candidate.endsWith(`.${definition.id}`)
+            )))].sort();
 
-	test('supports single-quoted attributes and multiple tags on one line', () => {
-		const tokens = parseDocLine("<see cref='Result'/> and <paramref name='source'/>");
+            assert.deepStrictEqual(actual, expected);
+        });
 
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocAttributeValue && token.length === 8));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocTagName && token.start === 1));
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocTagName && token.start > 20));
-	});
+        test(`rejects email and generic false positives for ${definition.id}`, async () => {
+            const grammar = await loadGeneratedGrammar(definition.id);
+            const prefix = definition.documentationStyle === 'line' ? `${definition.linePrefix} ` : ' * ';
+            const scopes = tokenizeLines(
+                grammar,
+                [`${prefix}Contact user@example.com and use List<T> or Map<K, V>.`],
+            ).flatMap(allScopes);
 
-	test('does not mistake inline generics for XML tags', () => {
-		const tokens = parseDocLine('List<T> stays plain text while @param <T> remains supported');
+            assert.ok(!scopes.includes(getTokenScope('xmlDocAtTag', definition.id)));
+            assert.ok(!scopes.includes(getTokenScope('xmlDocTagName', definition.id)));
+        });
+    }
 
-		assert.strictEqual(tokens.filter((token) => token.type === TOKEN_TYPES.xmlDocTagName).length, 1);
-		assert.ok(tokens.some((token) => token.type === TOKEN_TYPES.xmlDocAtTag));
-	});
+    for (const definition of LANGUAGE_DEFINITIONS.filter(({ regularBlockSelectors }) => regularBlockSelectors)) {
+        test(`emits all thirteen scopes for ordinary ${definition.id} block comments`, async () => {
+            const grammar = await loadRegularBlockGrammar(definition.id);
+            const tokenized = tokenizeLines(grammar, [
+                '/*',
+                ' * <!-- note -->',
+                ' * <![CDATA[value <not-a-tag>]]>',
+                ' * <summary title="Docs" cref=\'Result\'>Value &amp;</summary>',
+                ' * {@link Result} @param source',
+                ' */',
+                'const value = 1;',
+            ]);
+            const commentScopes = tokenized.slice(0, -1).flatMap(allScopes);
+            const codeScopes = allScopes(tokenized[tokenized.length - 1] ?? []);
+
+            for (const key of TOKEN_KEYS) {
+                assert.ok(
+                    commentScopes.includes(getTokenScope(key, definition.id)),
+                    `${definition.id}: missing ${key}`,
+                );
+            }
+            assert.ok(
+                !TOKEN_KEYS.some((key) => codeScopes.includes(getTokenScope(key, definition.id))),
+                `${definition.id}: token scopes leaked past the closing delimiter`,
+            );
+
+            const oneLineGrammar = await loadRegularBlockGrammar(definition.id);
+            const oneLineTokenized = tokenizeLines(oneLineGrammar, [
+                '/* <summary title="Docs">Value &amp;</summary> @returns result */',
+                'const nextValue = 2;',
+            ]);
+            const oneLineScopes = allScopes(oneLineTokenized[0] ?? []);
+            const followingCodeScopes = allScopes(oneLineTokenized[1] ?? []);
+
+            assert.ok(oneLineScopes.includes(getTokenScope('xmlDocBlockDelimiter', definition.id)));
+            assert.ok(oneLineScopes.includes(getTokenScope('xmlDocTagName', definition.id)));
+            assert.ok(oneLineScopes.includes(getTokenScope('xmlDocAtTag', definition.id)));
+            assert.ok(
+                !TOKEN_KEYS.some((key) => followingCodeScopes.includes(getTokenScope(key, definition.id))),
+                `${definition.id}: one-line block did not close`,
+            );
+
+            const extraStarGrammar = await loadRegularBlockGrammar(definition.id);
+            const extraStarTokenized = tokenizeLines(extraStarGrammar, [
+                '/*** <summary>Three stars</summary> */',
+                '/**** @returns four stars */',
+                'const afterExtraStars = 3;',
+            ]);
+            for (const commentLine of extraStarTokenized.slice(0, 2)) {
+                assert.ok(
+                    allScopes(commentLine).includes(getTokenScope('xmlDocBlockDelimiter', definition.id)),
+                    `${definition.id}: extra-star block delimiter was not captured`,
+                );
+            }
+            assert.ok(allScopes(extraStarTokenized[0]).includes(getTokenScope('xmlDocTagName', definition.id)));
+            assert.ok(allScopes(extraStarTokenized[1]).includes(getTokenScope('xmlDocAtTag', definition.id)));
+            assert.ok(
+                !TOKEN_KEYS.some((key) => allScopes(extraStarTokenized[2]).includes(getTokenScope(key, definition.id))),
+                `${definition.id}: extra-star block did not close`,
+            );
+
+            for (const [line, expectedOpener] of [
+                ['/* body */', '/*'],
+                ['/*** body */', '/***'],
+                ['/**** body */', '/****'],
+                ['/***/', '/**'],
+                ['/****/', '/***'],
+            ] as const) {
+                const delimiterGrammar = await loadRegularBlockGrammar(definition.id);
+                const tokens = delimiterGrammar.tokenizeLine(line, INITIAL).tokens;
+                const delimiterScope = getTokenScope('xmlDocBlockDelimiter', definition.id);
+                const delimiterTokens = tokens.filter((token) => token.scopes.includes(delimiterScope));
+                const closingDelimiter = delimiterTokens[delimiterTokens.length - 1];
+                assert.strictEqual(line.slice(
+                    delimiterTokens[0]?.startIndex,
+                    delimiterTokens[0]?.endIndex,
+                ), expectedOpener, `${definition.id}: incorrect opener range for ${line}`);
+                assert.strictEqual(line.slice(
+                    closingDelimiter?.startIndex,
+                    closingDelimiter?.endIndex,
+                ), '*/', `${definition.id}: incorrect closer range for ${line}`);
+                assert.ok(delimiterTokens.every((token) => (
+                    token.scopes.includes(`comment.block.xml-doc-color.${definition.id}`)
+                )), `${definition.id}: missing theme-inheriting comment parent`);
+                if (!line.includes('body')) {
+                    assert.strictEqual(delimiterTokens[0]?.endIndex, closingDelimiter?.startIndex);
+                }
+            }
+
+            const exactDocumentationGrammar = await loadRegularBlockGrammar(definition.id);
+            const exactDocumentation = exactDocumentationGrammar.tokenizeLine('/** documentation */', INITIAL).tokens;
+            assert.ok(!allScopes(exactDocumentation).includes(
+                getTokenScope('xmlDocBlockDelimiter', definition.id),
+            ));
+        });
+    }
+
+    test('keeps multiline CDATA state across C# documentation lines', async () => {
+        const grammar = await loadGeneratedGrammar('csharp');
+        const tokenized = tokenizeLines(grammar, [
+            '/// <![CDATA[',
+            '/// value < fakeTag',
+            '/// ]]>',
+        ]);
+        const middleScopes = allScopes(tokenized[1]);
+        assert.ok(middleScopes.includes(getTokenScope('xmlDocCDataText', 'csharp')));
+        assert.ok(!middleScopes.includes(getTokenScope('xmlDocTagName', 'csharp')));
+    });
+
+    test('confines block injections to native documentation scopes', () => {
+        for (const definition of LANGUAGE_DEFINITIONS.filter(({ documentationStyle }) => documentationStyle === 'block')) {
+            const grammar = createGrammar(definition);
+            const selectors = grammar.injectionSelector.split(',').map((selector) => selector.trim());
+            const expected = (definition.documentationScopes ?? []).map((scope) => `L:${scope}`);
+            assert.deepStrictEqual(selectors, expected);
+            assert.ok(selectors.every((selector) => selector !== 'L:comment.block'));
+        }
+    });
+
+    test('integrates with native C# and TypeScript grammars without leaking into code', async () => {
+        const fixtures = {
+            csharp: [
+                '/// <summary>',
+                '/// Builds <see cref="Result"/> &amp; validates it.',
+                '/// </summary>',
+                'public sealed class Example {}',
+            ],
+            typescript: [
+                '/**',
+                ' * Builds <see cref="Result" title=\'Docs\'/> &amp; validates it.',
+                ' * {@link Result} documentation.',
+                ' */',
+                'const value = "/** <notDocumentation> */";',
+            ],
+        } as const;
+
+        for (const [languageId, lines] of Object.entries(fixtures)) {
+            const grammar = await loadWithBuiltInHost(languageId);
+            const tokenized = tokenizeLines(grammar, lines);
+            const documentationScopes = tokenized.slice(0, -1).flatMap(allScopes);
+            const codeScopes = allScopes(tokenized[tokenized.length - 1] ?? []);
+
+            for (const key of [
+                'xmlDocTagName',
+                'xmlDocTagDelimiter',
+                'xmlDocAttribute',
+                'xmlDocReferenceValue',
+                'xmlDocEntity',
+                'xmlDocText',
+            ] as const) {
+                assert.ok(documentationScopes.includes(getTokenScope(key, languageId)), `${languageId}: missing ${key}`);
+            }
+            assert.ok(!codeScopes.some((scopeName) => scopeName.includes('xml-doc-color')));
+        }
+    });
+
+    test('colors ordinary blocks but excludes strings, regexes, templates, and line comments', async () => {
+        for (const languageId of [
+            'java',
+            'typescript',
+            'typescriptreact',
+            'javascript',
+            'javascriptreact',
+        ]) {
+            const grammar = await loadWithBuiltInHost(languageId);
+            const excludedLines = languageId === 'java'
+                ? [
+                    'String stringValue = "/* not a comment */";',
+                    '// /* not a block */',
+                ]
+                : [
+                    'const stringValue = "/* not a comment */";',
+                    'const templateValue = `/* not a comment */`;',
+                    'const regexValue = /\\/\\* not-a-comment/;',
+                    '// /* not a block */',
+                ];
+            const tokenized = tokenizeLines(grammar, [
+                '/* <summary title="Docs">Text &amp;</summary> */',
+                ...excludedLines,
+            ]);
+
+            assert.ok(allScopes(tokenized[0]).includes(getTokenScope('xmlDocBlockDelimiter', languageId)));
+            for (const excludedLine of tokenized.slice(1)) {
+                assert.ok(!allScopes(excludedLine).some((scopeName) => scopeName.includes('xml-doc-color')));
+            }
+        }
+    });
+
+    test('colors three-or-more-star blocks in the six bundled native language hosts', async () => {
+        for (const languageId of [
+            'java',
+            'typescript',
+            'typescriptreact',
+            'javascript',
+            'javascriptreact',
+            'php',
+        ]) {
+            const grammar = await loadWithBuiltInHost(languageId);
+            const tokenized = tokenizeLines(grammar, [
+                '/*** <summary>Three stars</summary> */',
+                '/**** @returns four stars */',
+                'const afterExtraStars = 3;',
+            ]);
+
+            assert.ok(allScopes(tokenized[0]).includes(getTokenScope('xmlDocBlockDelimiter', languageId)));
+            assert.ok(allScopes(tokenized[0]).includes(getTokenScope('xmlDocTagName', languageId)));
+            assert.ok(allScopes(tokenized[1]).includes(getTokenScope('xmlDocAtTag', languageId)));
+            assert.ok(!allScopes(tokenized[2]).some((scopeName) => scopeName.includes('xml-doc-color')));
+        }
+    });
+
+    test('keeps JSDoc native, leaves C# block comments untouched, and excludes CSS in PHP files', async () => {
+        const typescript = await loadWithBuiltInHost('typescript');
+        const jsdoc = tokenizeLines(typescript, ['/** documentation */'])[0];
+        assert.ok(!allScopes(jsdoc).includes(getTokenScope('xmlDocLinePrefix', 'typescript')));
+        assert.ok(!allScopes(jsdoc).includes(getTokenScope('xmlDocBlockDelimiter', 'typescript')));
+        assert.ok(allScopes(jsdoc).includes(getTokenScope('xmlDocText', 'typescript')));
+
+        const csharp = await loadWithBuiltInHost('csharp');
+        const csharpBlock = tokenizeLines(csharp, ['/* ordinary C# comment */'])[0];
+        assert.ok(!allScopes(csharpBlock).some((scopeName) => scopeName.includes('xml-doc-color')));
+
+        const php = await loadWithBuiltInHost('php', 'text.html.php');
+        const phpLines = tokenizeLines(php, [
+            '<style>/* CSS remains native */</style>',
+            '<?php',
+            '/* PHP uses XML Doc Color */',
+            '?>',
+        ]);
+        assert.ok(!allScopes(phpLines[0]).some((scopeName) => scopeName.includes('xml-doc-color')));
+        assert.ok(allScopes(phpLines[2]).includes(getTokenScope('xmlDocBlockDelimiter', 'php')));
+        assert.ok(!allScopes(phpLines[3]).some((scopeName) => scopeName.includes('xml-doc-color')));
+    });
+
+    test('writes all generated grammar assets during the build', () => {
+        const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
+        assert.ok(extension);
+        for (const language of LANGUAGE_DEFINITIONS) {
+            assert.ok(fs.existsSync(path.join(extension.extensionPath, 'dist', 'syntaxes', `${language.id}.tmLanguage.json`)));
+            if (language.regularBlockSelectors) {
+                assert.ok(fs.existsSync(path.join(
+                    extension.extensionPath,
+                    'dist',
+                    'syntaxes',
+                    `${language.id}.block.tmLanguage.json`,
+                )));
+            }
+        }
+    });
 });
 
-suite('colorConfig', () => {
-	test('writeColors rejects invalid hex color values', async () => {
-		const editorConfig = vscode.workspace.getConfiguration('editor');
-		const originalCustomizations = editorConfig.inspect<Record<string, unknown>>('semanticTokenColorCustomizations')?.globalValue;
+suite('TextMate color rules', () => {
+    const editorConfig = vscode.workspace.getConfiguration('editor');
+    const extensionConfig = vscode.workspace.getConfiguration('xmlDocColor');
+    let originalColors: TokenColorCustomizations | undefined;
+    let originalTarget: unknown;
 
-		try {
-			await assert.rejects(
-				writeColors({
-					xmlDocTagName: 'not-a-color',
-					xmlDocTagDelimiter: '#222222',
-					xmlDocAttribute: '#333333',
-					xmlDocAttributeValue: '#444444',
-					xmlDocEntity: '#555555',
-					xmlDocCDataDelimiter: '#666666',
-					xmlDocCDataText: '#777777',
-					xmlDocInlineDelimiter: '#888888',
-					xmlDocReferenceValue: '#999999',
-					xmlDocAtTag: '#AAAAAA',
-					xmlDocLinePrefix: '#BBBBBB',
-					xmlDocText: '#CCCCCC',
-				}, '*'),
-				/Invalid XML doc color/,
-			);
-		} finally {
-			await editorConfig.update(
-				'semanticTokenColorCustomizations',
-				originalCustomizations,
-				vscode.ConfigurationTarget.Global,
-			);
-		}
-	});
+    setup(() => {
+        originalColors = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')?.globalValue;
+        originalTarget = extensionConfig.inspect('configurationTarget')?.globalValue;
+    });
 
-	test('resetColors removes language overrides and falls back to global colors', async () => {
-		const editorConfig = vscode.workspace.getConfiguration('editor');
-		const originalCustomizations = editorConfig.inspect<Record<string, unknown>>('semanticTokenColorCustomizations')?.globalValue;
+    teardown(async () => {
+        await editorConfig.update('tokenColorCustomizations', originalColors, vscode.ConfigurationTarget.Global);
+        await extensionConfig.update('configurationTarget', originalTarget, vscode.ConfigurationTarget.Global);
+    });
 
-		try {
-			await writeColors({
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			}, '*');
+    test('writes global rules before language overrides and preserves foreign rules', async () => {
+        const foreign: TextMateRule = {
+            name: 'Foreign rule',
+            scope: 'entity.name.type',
+            settings: { foreground: '#ABCDEF' },
+        };
+        await editorConfig.update(
+            'tokenColorCustomizations',
+            { textMateRules: [foreign] },
+            vscode.ConfigurationTarget.Global,
+        );
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
 
-			await writeColors({
-				xmlDocTagName: '#AAAAAA',
-				xmlDocTagDelimiter: '#BBBBBB',
-				xmlDocAttribute: '#CCCCCC',
-				xmlDocAttributeValue: '#DDDDDD',
-				xmlDocEntity: '#EEEEEE',
-				xmlDocCDataDelimiter: '#FFFFFF',
-				xmlDocCDataText: '#0A0A0A',
-				xmlDocInlineDelimiter: '#0B0B0B',
-				xmlDocReferenceValue: '#0C0C0C',
-				xmlDocAtTag: '#0D0D0D',
-				xmlDocLinePrefix: '#0E0E0E',
-				xmlDocText: '#0F0F0F',
-			}, 'csharp');
+        await writeColors(testColors(1), '*');
+        await writeColors(testColors(32), 'typescript');
 
-			assert.strictEqual(readColors('csharp').xmlDocTagName, '#AAAAAA');
+        const rules = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.deepStrictEqual(rules[0], foreign);
+        const allIndex = rules.findIndex((rule) => rule.name === 'XML Doc Color / xmlDocTagName / all');
+        const languageIndex = rules.findIndex((rule) => rule.name === 'XML Doc Color / xmlDocTagName / typescript');
+        assert.ok(allIndex > 0);
+        assert.ok(languageIndex > allIndex);
 
-			await resetColors('csharp');
+        await resetColors('typescript');
+        const afterReset = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.ok(afterReset.some((rule) => rule.name === 'XML Doc Color / xmlDocTagName / all'));
+        assert.ok(!afterReset.some((rule) => rule.name === 'XML Doc Color / xmlDocTagName / typescript'));
+        assert.ok(afterReset.some((rule) => rule.name === 'Foreign rule'));
+    });
 
-			const csharpColors = readColors('csharp');
-			assert.strictEqual(csharpColors.xmlDocTagName, '#111111');
-			assert.strictEqual(csharpColors.xmlDocAtTag, '#AAAAAA');
-			assert.strictEqual(csharpColors.xmlDocLinePrefix, '#BBBBBB');
-			assert.strictEqual(csharpColors.xmlDocText, '#CCCCCC');
-		} finally {
-			await editorConfig.update(
-				'semanticTokenColorCustomizations',
-				originalCustomizations,
-				vscode.ConfigurationTarget.Global,
-			);
-		}
-	});
+    test('reapplies a language palette by replacing thirteen rules without duplicates', async () => {
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
+        await writeColors(testColors(1), 'typescript');
+        const replacement = testColors(96);
+        await writeColors(replacement, 'typescript');
 
-	test('writeColors overrides XML doc token rules with full foreground settings', async () => {
-		const editorConfig = vscode.workspace.getConfiguration('editor');
-		const originalCustomizations = editorConfig.inspect<Record<string, unknown>>('semanticTokenColorCustomizations')?.globalValue;
+        const rules = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        const typescriptRules = rules.filter((rule) => rule.name?.endsWith('/ typescript'));
+        assert.strictEqual(typescriptRules.length, TOKEN_KEYS.length);
+        assert.strictEqual(
+            typescriptRules.find((rule) => rule.name?.includes('xmlDocTagName'))?.settings?.foreground,
+            replacement.xmlDocTagName,
+        );
+    });
 
-		try {
-			await writeColors({
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			}, '*');
+    test('keeps a stored twelve-color palette untouched until the next Apply', async () => {
+        const oldTokenKeys = TOKEN_KEYS.filter((key) => key !== 'xmlDocBlockDelimiter');
+        const oldRules: TextMateRule[] = oldTokenKeys.map((key, index) => ({
+            name: `XML Doc Color / ${key} / typescript`,
+            scope: getTokenScope(key, 'typescript'),
+            settings: { foreground: `#${(index + 1).toString(16).padStart(2, '0').repeat(3)}` },
+        }));
+        await editorConfig.update(
+            'tokenColorCustomizations',
+            { textMateRules: oldRules },
+            vscode.ConfigurationTarget.Global,
+        );
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
 
-			const customizations = vscode.workspace
-				.getConfiguration('editor')
-				.get<Record<string, unknown>>('semanticTokenColorCustomizations') ?? {};
-			const rules = customizations.rules as Record<string, unknown>;
+        const beforeApply = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.strictEqual(beforeApply.length, 12);
+        assert.strictEqual(readResolvedColors('typescript').sources.xmlDocBlockDelimiter, 'theme');
 
-			assert.deepStrictEqual(rules.xmlDocTagName, { foreground: '#111111', bold: true });
-			assert.deepStrictEqual(rules.xmlDocTagDelimiter, { foreground: '#222222' });
-			assert.deepStrictEqual(rules.xmlDocAttribute, { foreground: '#333333' });
-			assert.deepStrictEqual(rules.xmlDocAttributeValue, { foreground: '#444444' });
-			assert.deepStrictEqual(rules.xmlDocEntity, { foreground: '#555555' });
-			assert.deepStrictEqual(rules.xmlDocCDataDelimiter, { foreground: '#666666' });
-			assert.deepStrictEqual(rules.xmlDocCDataText, { foreground: '#777777' });
-			assert.deepStrictEqual(rules.xmlDocInlineDelimiter, { foreground: '#888888' });
-			assert.deepStrictEqual(rules.xmlDocReferenceValue, { foreground: '#999999' });
-			assert.deepStrictEqual(rules.xmlDocAtTag, { foreground: '#AAAAAA', bold: true });
-			assert.deepStrictEqual(rules.xmlDocLinePrefix, { foreground: '#BBBBBB' });
-			assert.deepStrictEqual(rules.xmlDocText, { foreground: '#CCCCCC' });
-		} finally {
-			await editorConfig.update(
-				'semanticTokenColorCustomizations',
-				originalCustomizations,
-				vscode.ConfigurationTarget.Global,
-			);
-		}
-	});
+        await writeColors(testColors(96), 'typescript');
 
-	test('readResolvedColors reports inherited vs overridden token sources', async () => {
-		const editorConfig = vscode.workspace.getConfiguration('editor');
-		const originalCustomizations = editorConfig.inspect<Record<string, unknown>>('semanticTokenColorCustomizations')?.globalValue;
+        const afterApply = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.strictEqual(afterApply.filter((rule) => rule.name?.endsWith('/ typescript')).length, 13);
+        assert.ok(afterApply.some((rule) => rule.name === (
+            'XML Doc Color / xmlDocBlockDelimiter / typescript'
+        )));
+    });
 
-		try {
-			await writeColors({
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			}, 'csharp');
+    test('applying an all-language palette removes overrides that would mask it', async () => {
+        const foreign: TextMateRule = {
+            name: 'Foreign rule',
+            scope: 'entity.name.type',
+            settings: { foreground: '#ABCDEF' },
+        };
+        await editorConfig.update(
+            'tokenColorCustomizations',
+            { textMateRules: [foreign] },
+            vscode.ConfigurationTarget.Global,
+        );
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
 
-			const resolved = readResolvedColors('csharp');
-			assert.strictEqual(resolved.colors.xmlDocTagName, '#111111');
-			assert.strictEqual(resolved.overrides.xmlDocTagName, true);
-			assert.strictEqual(typeof resolved.overrides.xmlDocText, 'boolean');
-		} finally {
-			await editorConfig.update(
-				'semanticTokenColorCustomizations',
-				originalCustomizations,
-				vscode.ConfigurationTarget.Global,
-			);
-		}
-	});
+        await writeColors(testColors(1), 'typescript');
+        const allLanguages = testColors(96);
+        await writeColors(allLanguages, '*');
 
-	test('builds a theme customization snippet for the selected scope', () => {
-		const snippet = getThemeCustomizationSnippet({
-			xmlDocTagName: '#111111',
-			xmlDocTagDelimiter: '#222222',
-			xmlDocAttribute: '#333333',
-			xmlDocAttributeValue: '#444444',
-			xmlDocEntity: '#555555',
-			xmlDocCDataDelimiter: '#666666',
-			xmlDocCDataText: '#777777',
-			xmlDocInlineDelimiter: '#888888',
-			xmlDocReferenceValue: '#999999',
-			xmlDocAtTag: '#AAAAAA',
-			xmlDocLinePrefix: '#BBBBBB',
-			xmlDocText: '#CCCCCC',
-		}, 'typescript');
+        const rules = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.strictEqual(rules.filter((rule) => rule.name?.endsWith('/ all')).length, TOKEN_KEYS.length);
+        assert.ok(!rules.some((rule) => rule.name?.endsWith('/ typescript')));
+        assert.ok(rules.some((rule) => rule.name === 'Foreign rule'));
+        const blockDelimiterRule = rules.find((rule) => (
+            rule.name === 'XML Doc Color / xmlDocBlockDelimiter / all'
+        ));
+        assert.ok(Array.isArray(blockDelimiterRule?.scope));
+        assert.deepStrictEqual(
+            blockDelimiterRule.scope,
+            REGULAR_BLOCK_LANGUAGE_IDS.map((languageId) => (
+                getTokenScope('xmlDocBlockDelimiter', languageId)
+            )),
+        );
 
-		assert.ok(snippet.includes('"xmlDocTagName:typescript"'));
-		assert.ok(snippet.includes('"foreground": "#111111"'));
-	});
+        const resolved = readResolvedColors('typescript');
+        assert.strictEqual(resolved.sources.xmlDocTagName, 'all');
+        assert.strictEqual(resolved.colors.xmlDocTagName, allLanguages.xmlDocTagName);
+    });
+
+    test('resetting all languages keeps explicit language overrides', async () => {
+        await editorConfig.update(
+            'tokenColorCustomizations',
+            { textMateRules: [] },
+            vscode.ConfigurationTarget.Global,
+        );
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
+        await writeColors(testColors(1), '*');
+        const typescript = testColors(64);
+        await writeColors(typescript, 'typescript');
+
+        await resetColors('*');
+
+        const rules = editorConfig.inspect<TokenColorCustomizations>('tokenColorCustomizations')
+            ?.globalValue?.textMateRules ?? [];
+        assert.ok(!rules.some((rule) => rule.name?.endsWith('/ all')));
+        assert.strictEqual(rules.filter((rule) => rule.name?.endsWith('/ typescript')).length, TOKEN_KEYS.length);
+        const resolved = readResolvedColors('typescript');
+        assert.strictEqual(resolved.sources.xmlDocTagName, 'language');
+        assert.strictEqual(resolved.colors.xmlDocTagName, typescript.xmlDocTagName);
+    });
+
+    test('rejects invalid colors and unavailable workspace writes', async () => {
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
+        await assert.rejects(
+            writeColors({ ...testColors(), xmlDocTagName: 'red' }, '*'),
+            /Invalid XML doc color/,
+        );
+
+        if (!vscode.workspace.workspaceFile && !vscode.workspace.workspaceFolders?.length) {
+            await extensionConfig.update('configurationTarget', 'workspace', vscode.ConfigurationTarget.Global);
+            await assert.rejects(writeColors(testColors(), '*'), /Open a workspace/);
+        }
+    });
+
+    test('reads language, all-language, and inherited sources', async () => {
+        await extensionConfig.update('configurationTarget', 'global', vscode.ConfigurationTarget.Global);
+        await writeColors(testColors(1), '*');
+        let resolved = readResolvedColors('typescript');
+        assert.strictEqual(resolved.sources.xmlDocTagName, 'all');
+
+        await writeColors(testColors(64), 'typescript');
+        resolved = readResolvedColors('typescript');
+        assert.strictEqual(resolved.sources.xmlDocTagName, 'language');
+
+        await resetColors('typescript');
+        await resetColors('*');
+        resolved = readResolvedColors('typescript');
+        assert.strictEqual(resolved.sources.xmlDocTagName, 'theme');
+    });
+
+    test('exports only token types applicable to the selected language', () => {
+        const snippet = getThemeCustomizationSnippet(DARK_PRESET_COLORS, 'typescript');
+        const parsed = JSON.parse(snippet) as {
+            'editor.tokenColorCustomizations': { textMateRules: TextMateRule[] };
+        };
+        const rules = parsed['editor.tokenColorCustomizations'].textMateRules;
+        assert.strictEqual(rules.length, 13);
+        assert.ok(rules.every((rule) => !Array.isArray(rule.scope) && String(rule.scope).endsWith('.typescript')));
+
+        const csharpSnippet = JSON.parse(getThemeCustomizationSnippet(DARK_PRESET_COLORS, 'csharp')) as {
+            'editor.tokenColorCustomizations': { textMateRules: TextMateRule[] };
+        };
+        assert.strictEqual(csharpSnippet['editor.tokenColorCustomizations'].textMateRules.length, 12);
+        assert.ok(!csharpSnippet['editor.tokenColorCustomizations'].textMateRules.some((rule) => (
+            rule.name?.includes('xmlDocBlockDelimiter')
+        )));
+    });
 });
 
-suite('ColorPickerViewProvider messages', () => {
-	test('accepts valid apply messages', () => {
-		const message = normalizeWebviewMessage({
-			type: 'apply',
-			mode: 'custom',
-			colors: {
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			},
-		});
+suite('Legacy semantic color migration', () => {
+    test('moves global, language, and theme rules while preserving unrelated settings', () => {
+        const migration = migrateCustomizationValues({
+            enabled: true,
+            rules: {
+                xmlDocTagName: { foreground: '#112233', bold: true, italic: true },
+                'xmlDocText:typescript': '#445566',
+                variable: '#FFFFFF',
+            },
+            '[Dark+]': {
+                rules: {
+                    xmlDocAtTag: { foreground: '#778899', underline: true },
+                    function: '#ABCDEF',
+                },
+            },
+        }, {
+            textMateRules: [{ name: 'Foreign', scope: 'entity.name.type', settings: { foreground: '#FFFFFF' } }],
+        });
 
-		assert.deepStrictEqual(message, {
-			type: 'apply',
-			mode: 'custom',
-			colors: {
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			},
-		});
-	});
+        assert.strictEqual(migration.convertedRuleNames.length, 3);
+        assert.deepStrictEqual((migration.semantic?.rules as Record<string, unknown>), { variable: '#FFFFFF' });
+        assert.deepStrictEqual(
+            ((migration.semantic?.['[Dark+]'] as Record<string, unknown>).rules as Record<string, unknown>),
+            { function: '#ABCDEF' },
+        );
+        const rules = migration.textMate.textMateRules ?? [];
+        assert.ok(rules.some((rule) => rule.name === 'Foreign'));
+        const migrated = rules.find((rule) => rule.name === 'XML Doc Color / xmlDocTagName / all');
+        assert.strictEqual(migrated?.settings?.foreground, '#112233');
+        assert.strictEqual(migrated?.settings?.fontStyle, 'italic bold');
+        const theme = migration.textMate['[Dark+]'] as TokenColorCustomizations;
+        assert.ok(theme.textMateRules?.some((rule) => rule.name === 'XML Doc Color / xmlDocAtTag / all'));
+    });
 
-	test('rejects invalid color and language messages', () => {
-		assert.strictEqual(normalizeWebviewMessage({
-			type: 'apply',
-			colors: {
-				xmlDocTagName: 'red',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			},
-		}), undefined);
+    test('is idempotent and keeps an existing TextMate rule as the source of truth', () => {
+        const existing: TextMateRule = {
+            name: 'XML Doc Color / xmlDocTagName / all',
+            scope: LANGUAGE_DEFINITIONS.map(({ id }) => getTokenScope('xmlDocTagName', id)),
+            settings: { foreground: '#AABBCC' },
+        };
+        const migration = migrateCustomizationValues(
+            { rules: { xmlDocTagName: '#112233' } },
+            { textMateRules: [existing] },
+        );
+        assert.strictEqual(migration.textMate.textMateRules?.length, 1);
+        assert.strictEqual(migration.textMate.textMateRules?.[0].settings?.foreground, '#AABBCC');
 
-		assert.strictEqual(normalizeWebviewMessage({
-			type: 'changeLanguage',
-			language: 'not-supported',
-		}), undefined);
+        const second = migrateCustomizationValues(migration.semantic, migration.textMate);
+        assert.strictEqual(second.convertedRuleNames.length, 0);
+    });
 
-		assert.strictEqual(normalizeWebviewMessage({
-			type: 'apply',
-			mode: 'unknown',
-			colors: {
-				xmlDocTagName: '#111111',
-				xmlDocTagDelimiter: '#222222',
-				xmlDocAttribute: '#333333',
-				xmlDocAttributeValue: '#444444',
-				xmlDocEntity: '#555555',
-				xmlDocCDataDelimiter: '#666666',
-				xmlDocCDataText: '#777777',
-				xmlDocInlineDelimiter: '#888888',
-				xmlDocReferenceValue: '#999999',
-				xmlDocAtTag: '#AAAAAA',
-				xmlDocLinePrefix: '#BBBBBB',
-				xmlDocText: '#CCCCCC',
-			},
-		}), undefined);
-	});
+    test('keeps legacy data when writing the replacement rules fails', async () => {
+        const legacy = { rules: { xmlDocTagName: '#112233' } };
+        const migration = migrateCustomizationValues(legacy, undefined);
+        let semanticWriteCount = 0;
+
+        await assert.rejects(
+            persistMigration(migration, {
+                writeTextMate: async () => {
+                    throw new Error('simulated write failure');
+                },
+                readTextMate: () => migration.textMate,
+                writeSemantic: async () => {
+                    semanticWriteCount += 1;
+                },
+            }, 'test'),
+            /simulated write failure/,
+        );
+
+        assert.strictEqual(semanticWriteCount, 0);
+        assert.deepStrictEqual(legacy, { rules: { xmlDocTagName: '#112233' } });
+    });
 });
 
-suite('Color Picker Webview HTML', () => {
-	test('uses a Web Components shell with required CSP placeholders', async () => {
-		const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
-		assert.ok(extension, 'expected development extension to be available');
+suite('Webview contract and extension commands', () => {
+    test('accepts a complete thirteen-color payload and rejects incomplete payloads', () => {
+        const valid = normalizeWebviewMessage({
+            type: 'apply',
+            mode: 'custom',
+            colors: testColors(),
+        });
+        assert.ok(valid);
+        assert.strictEqual(Object.keys(valid.type === 'apply' ? valid.colors : {}).length, 13);
+        assert.strictEqual(normalizeWebviewMessage({
+            type: 'apply',
+            mode: 'custom',
+            colors: { xmlDocTagName: '#112233' },
+        }), undefined);
+    });
 
-		const htmlPath = path.join(extension.extensionPath, 'media', 'settingsPanel.html');
-		const html = fs.readFileSync(htmlPath, 'utf-8');
+    test('uses external webview assets and a nonce-based CSP', () => {
+        const extension = vscode.extensions.getExtension('MindLated.xml-doc-color');
+        assert.ok(extension);
+        const html = fs.readFileSync(path.join(extension.extensionPath, 'media', 'settingsPanel.html'), 'utf8');
+        assert.ok(html.includes("script-src 'nonce-{{nonce}}'"));
+        assert.ok(html.includes('{{styleUri}}'));
+        assert.ok(html.includes('{{scriptUri}}'));
+        assert.ok(html.includes('role="status"'));
+        assert.ok(!html.includes('style="'));
+    });
 
-		assert.ok(html.includes("style-src 'nonce-{{nonce}}'"), 'missing style nonce placeholder');
-		assert.ok(html.includes("script-src 'nonce-{{nonce}}'"), 'missing script nonce placeholder');
-		assert.ok(html.includes('{{cspSource}}'), 'missing CSP source placeholder');
-		assert.ok(html.includes('<script id="preview-data" type="application/json">{{sidebarPreviewData}}</script>'), 'missing preview data script tag');
-		assert.ok(html.includes('<xml-doc-color-app></xml-doc-color-app>'), 'missing root Web Component');
+    test('registers the retained commands and removes the runtime toggle', async function () {
+        this.timeout(10_000);
+        await vscode.extensions.getExtension('MindLated.xml-doc-color')?.activate();
+        const commands = await vscode.commands.getCommands(true);
+        assert.ok(commands.includes('xmlDocColor.openColorPicker'));
+        assert.ok(commands.includes('xmlDocColor.copyThemeRules'));
+        assert.ok(commands.includes('xmlDocColor.openThemeSnippet'));
+        assert.ok(!commands.includes('xmlDocColor.toggleEnabled'));
+    });
 
-		for (const componentName of [
-			'xml-doc-color-app',
-			'language-selector',
-			'preview-panel',
-			'token-color-row',
-			'action-bar',
-			'preset-selector',
-		]) {
-			assert.ok(
-				html.includes(`customElements.define('${componentName}'`),
-				`missing ${componentName} definition`,
-			);
-		}
-	});
-});
-
-suite('Extension contributions', () => {
-	test('contributes a command to open the color picker', async () => {
-		await vscode.extensions.getExtension('MindLated.xml-doc-color')?.activate();
-		const commands = await vscode.commands.getCommands(true);
-		assert.ok(
-			commands.includes('xmlDocColor.openColorPicker'),
-			'expected xmlDocColor.openColorPicker to be available',
-		);
-		assert.ok(commands.includes('xmlDocColor.toggleEnabled'));
-		assert.ok(commands.includes('xmlDocColor.copyThemeRules'));
-		assert.ok(commands.includes('xmlDocColor.openThemeSnippet'));
-	});
-});
-
-suite('XmlDocSemanticTokensProvider', () => {
-	test('respects xmlDocColor.enabled', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const document = await vscode.workspace.openTextDocument({
-			language: 'csharp',
-			content: '/// <summary name="value">Hello</summary>',
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			const enabledTokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(enabledTokens);
-			assert.ok(enabledTokens.data.length > 0, 'expected semantic tokens when enabled');
-
-			await config.update('enabled', false, vscode.ConfigurationTarget.Global);
-			const disabledTokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(disabledTokens);
-			assert.strictEqual(disabledTokens.data.length, 0, 'expected no semantic tokens when disabled');
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test('uses configured block doc parsing for block-doc languages', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const document = await vscode.workspace.openTextDocument({
-			language: 'typescript',
-			content: '/** <param name="source">Input</param> */',
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			const tokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(tokens);
-			assert.ok(tokens.data.length > 0, 'expected semantic tokens for configured block-doc comments');
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test('parses XML tokens on a multi-line block opening line', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const document = await vscode.workspace.openTextDocument({
-			language: 'typescript',
-			content: [
-				'/** <summary>',
-				' * Documentation text.',
-				' */',
-			].join('\n'),
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			const tokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(tokens);
-			assert.ok(tokens.data.length > 0, 'expected semantic tokens from the block opening line');
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test('returns no tokens when cancellation is already requested', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const document = await vscode.workspace.openTextDocument({
-			language: 'csharp',
-			content: '/// <summary>Cancelled</summary>',
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			tokenSource.cancel();
-			const tokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(tokens);
-			assert.strictEqual(tokens.data.length, 0, 'expected no semantic tokens after cancellation');
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test('provides tokens for untitled supported documents', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const document = await vscode.workspace.openTextDocument({
-			language: 'typescript',
-			content: '/** <summary>Preview</summary> */',
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			const tokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(tokens);
-			assert.ok(tokens.data.length > 0);
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test('handles larger documents without returning empty output', async () => {
-		const config = vscode.workspace.getConfiguration('xmlDocColor');
-		const originalEnabled = config.inspect<boolean>('enabled')?.globalValue;
-		const provider = new XmlDocSemanticTokensProvider();
-		const tokenSource = new vscode.CancellationTokenSource();
-		const lines = Array.from({ length: 400 }, (_, index) => `/// <param name="p${index}">Value ${index}</param>`);
-		const document = await vscode.workspace.openTextDocument({
-			language: 'csharp',
-			content: lines.join('\n'),
-		});
-
-		try {
-			await config.update('enabled', true, vscode.ConfigurationTarget.Global);
-			const tokens = await Promise.resolve(
-				provider.provideDocumentSemanticTokens(document, tokenSource.token),
-			);
-			assert.ok(tokens);
-			assert.ok(tokens.data.length > 0);
-		} finally {
-			tokenSource.dispose();
-			await config.update('enabled', originalEnabled, vscode.ConfigurationTarget.Global);
-		}
-	});
+    test('keeps both palettes complete and distinct', () => {
+        assert.deepStrictEqual(Object.keys(DARK_PRESET_COLORS), [...TOKEN_KEYS]);
+        assert.deepStrictEqual(Object.keys(LIGHT_PRESET_COLORS), [...TOKEN_KEYS]);
+        assert.notDeepStrictEqual(DARK_PRESET_COLORS, LIGHT_PRESET_COLORS);
+    });
 });

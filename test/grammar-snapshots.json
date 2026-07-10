@@ -1,0 +1,16 @@
+{
+  "expectedScopeBases": [
+    "comment.documentation.xml-doc-color",
+    "constant.character.entity.xml-doc-color",
+    "entity.name.tag.xml-doc-color",
+    "entity.other.attribute-name.xml-doc-color",
+    "keyword.other.documentation.xml-doc-color",
+    "punctuation.definition.cdata.xml-doc-color",
+    "punctuation.definition.comment.xml-doc-color",
+    "punctuation.definition.tag.xml-doc-color",
+    "punctuation.section.inline.documentation.xml-doc-color",
+    "string.quoted.xml-doc-color",
+    "string.unquoted.cdata.xml-doc-color",
+    "variable.other.reference.documentation.xml-doc-color"
+  ]
+}

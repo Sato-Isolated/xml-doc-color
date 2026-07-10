@@ -1,52 +1,68 @@
-const esbuild = require("esbuild");
+const esbuild = require('esbuild');
 
-const production = process.argv.includes("--production");
-const watch = process.argv.includes("--watch");
+const production = process.argv.includes('--production');
+const watch = process.argv.includes('--watch');
 
-/**
- * @type {import('esbuild').Plugin}
- */
-const esbuildProblemMatcherPlugin = {
-	name: "esbuild-problem-matcher",
-
-	setup(build) {
-		build.onStart(() => {
-			console.log("[watch] build started");
-		});
-		build.onEnd((result) => {
-			result.errors.forEach(({ text, location }) => {
-				console.error(`[ERROR] ${text}`);
-				console.error(`    ${location.file}:${location.line}:${location.column}:`);
-			});
-			console.log("[watch] build finished");
-		});
-	},
+const shared = {
+    bundle: true,
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    logLevel: 'warning',
 };
 
-async function main() {
-	const ctx = await esbuild.context({
-		entryPoints: ["src/extension.ts"],
-		bundle: true,
-		format: "cjs",
-		minify: production,
-		sourcemap: !production,
-		sourcesContent: false,
-		platform: "node",
-		outfile: "dist/extension.js",
-		external: ["vscode"],
-		logLevel: "silent",
-		plugins: [esbuildProblemMatcherPlugin],
-	});
+const builds = [
+    {
+        ...shared,
+        entryPoints: ['src/extension.ts'],
+        outfile: 'dist/node/extension.js',
+        platform: 'node',
+        format: 'cjs',
+        target: 'node16',
+        external: ['vscode'],
+    },
+    {
+        ...shared,
+        entryPoints: ['src/extension.ts'],
+        outfile: 'dist/web/extension.js',
+        platform: 'browser',
+        format: 'cjs',
+        target: 'es2020',
+        external: ['vscode'],
+        define: { global: 'globalThis' },
+    },
+    {
+        ...shared,
+        entryPoints: ['src/webview.ts'],
+        outfile: 'dist/webview.js',
+        platform: 'browser',
+        format: 'iife',
+        target: 'es2020',
+    },
+    {
+        ...shared,
+        entryPoints: ['src/test/web/smoke.ts'],
+        outfile: 'dist/web/test/smoke.js',
+        platform: 'browser',
+        format: 'cjs',
+        target: 'es2020',
+        external: ['vscode'],
+        define: { global: 'globalThis' },
+    },
+];
 
-	if (watch) {
-		await ctx.watch();
-	} else {
-		await ctx.rebuild();
-		await ctx.dispose();
-	}
+async function main() {
+    const contexts = await Promise.all(builds.map((options) => esbuild.context(options)));
+    if (watch) {
+        await Promise.all(contexts.map((context) => context.watch()));
+        return;
+    }
+
+    await Promise.all(contexts.map((context) => context.rebuild()));
+    await Promise.all(contexts.map((context) => context.dispose()));
 }
 
 main().catch((error) => {
-	console.error(error);
-	process.exit(1);
+    console.error(error);
+    process.exit(1);
 });

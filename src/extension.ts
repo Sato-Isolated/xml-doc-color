@@ -1,20 +1,23 @@
 import * as vscode from 'vscode';
 import {
     getThemeCustomizationSnippet,
+    migrateLegacyColorRules,
     readColors,
-    getConfigurationTarget,
 } from './colorConfig';
 import { ColorPickerViewProvider } from './colorPickerView';
-import { getEnabledLanguages, SUPPORTED_LANGUAGES } from './languages';
-import { XmlDocSemanticTokensProvider, LEGEND } from './provider';
+import { SUPPORTED_LANGUAGES } from './model';
 
-const WALKTHROUGH_KEY = 'xmlDocColor.didShowSidebarHint';
+const SIDEBAR_HINT_KEY = 'xmlDocColor.didShowSidebarHint';
 
-export function activate(context: vscode.ExtensionContext): void {
-    const provider = new XmlDocSemanticTokensProvider();
-    const combined: vscode.DocumentSelector = SUPPORTED_LANGUAGES.map((language) => ({ language }));
+/**
+ * Activates only imperative UI/settings behavior.
+ *
+ * Syntax highlighting is contributed declaratively by package.json and does
+ * not depend on this function or register any semantic-token provider.
+ */
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    const selector: vscode.DocumentSelector = SUPPORTED_LANGUAGES.map((language) => ({ language }));
     const colorPickerViewProvider = new ColorPickerViewProvider(context.extensionUri);
-
     let statusItem: vscode.LanguageStatusItem | undefined;
 
     function activeDocument(): vscode.TextDocument | undefined {
@@ -25,23 +28,19 @@ export function activate(context: vscode.ExtensionContext): void {
         return !!document && SUPPORTED_LANGUAGES.includes(document.languageId);
     }
 
-    function enabledLanguages(): readonly string[] {
-        return getEnabledLanguages();
-    }
-
     function isStatusItemEnabled(): boolean {
-        return vscode.workspace.getConfiguration('xmlDocColor', activeDocument()).get<boolean>('showStatusItem', true);
+        return vscode.workspace.getConfiguration('xmlDocColor').get<boolean>('showStatusItem', true);
     }
 
-    function ensureStatusItem(): vscode.LanguageStatusItem | undefined {
+    function updateStatusItem(): void {
         if (!isStatusItemEnabled()) {
             statusItem?.dispose();
             statusItem = undefined;
-            return undefined;
+            return;
         }
 
         if (!statusItem) {
-            statusItem = vscode.languages.createLanguageStatusItem('xmlDocColor.status', combined);
+            statusItem = vscode.languages.createLanguageStatusItem('xmlDocColor.status', selector);
             statusItem.name = 'XML Doc Color';
             statusItem.text = '$(symbol-color) XML Doc Color';
             statusItem.command = {
@@ -51,67 +50,40 @@ export function activate(context: vscode.ExtensionContext): void {
             context.subscriptions.push(statusItem);
         }
 
-        return statusItem;
-    }
-
-    function updateContextKeys(): void {
-        const document = activeDocument();
-        const supported = isSupportedDocument(document);
-        const activeLanguage = document?.languageId;
-        const enabledForLanguage = !!activeLanguage && enabledLanguages().includes(activeLanguage);
-
-        void vscode.commands.executeCommand('setContext', 'xmlDocColor.hasSupportedEditor', supported);
-        void vscode.commands.executeCommand('setContext', 'xmlDocColor.isEnabledForActiveLanguage', enabledForLanguage);
-    }
-
-    function updateStatusItem(): void {
-        const item = ensureStatusItem();
-        if (!item) {
-            updateContextKeys();
-            return;
-        }
-
-        const document = activeDocument();
-        const config = vscode.workspace.getConfiguration('xmlDocColor', document);
-        const enabled = config.get<boolean>('enabled', true);
-        const activeLanguage = document?.languageId;
-        const languageEnabled = !!activeLanguage && enabledLanguages().includes(activeLanguage);
-
-        item.severity = enabled && languageEnabled
-            ? vscode.LanguageStatusSeverity.Information
-            : vscode.LanguageStatusSeverity.Warning;
-
-        if (!document || !SUPPORTED_LANGUAGES.includes(document.languageId)) {
-            item.detail = 'Open a supported file to preview XML doc semantic colors.';
-        } else if (!enabled) {
-            item.detail = 'Disabled';
-        } else if (!languageEnabled) {
-            item.detail = `Disabled for ${document.languageId}`;
-        } else {
-            item.detail = 'Active';
-        }
-
-        updateContextKeys();
+        statusItem.severity = vscode.LanguageStatusSeverity.Information;
+        statusItem.detail = isSupportedDocument(activeDocument())
+            ? 'TextMate documentation and block-comment scopes active'
+            : 'Open a supported document';
     }
 
     async function maybeShowSidebarHint(): Promise<void> {
-        const hasShownHint = context.globalState.get<boolean>(WALKTHROUGH_KEY, false);
-        if (hasShownHint) {
-            return;
-        }
-
-        if (!isSupportedDocument(activeDocument())) {
+        const hasShownHint = context.globalState.get<boolean>(SIDEBAR_HINT_KEY, false);
+        if (!hasShownHint && !isSupportedDocument(activeDocument())) {
             await vscode.window.showInformationMessage(
-                'XML Doc Color: open a supported editor to preview live semantic colors in the sidebar.',
+                'XML Doc Color: open a supported editor to compare the preview with TextMate highlighting.',
             );
         }
+        if (!hasShownHint) {
+            await context.globalState.update(SIDEBAR_HINT_KEY, true);
+        }
+    }
 
-        await context.globalState.update(WALKTHROUGH_KEY, true);
+    try {
+        // Migration is safe to retry on every activation. The success/error
+        // notification is intentionally non-blocking in headless/Web hosts.
+        const migrated = await migrateLegacyColorRules();
+        if (migrated > 0) {
+            void vscode.window.showInformationMessage(
+                `XML Doc Color migrated ${migrated} semantic color rule${migrated === 1 ? '' : 's'} to TextMate.`,
+            );
+        }
+    } catch (error) {
+        void vscode.window.showErrorMessage(
+            `XML Doc Color could not migrate legacy color rules. Existing rules were kept. ${formatError(error)}`,
+        );
     }
 
     context.subscriptions.push(
-        vscode.languages.registerDocumentSemanticTokensProvider(combined, provider, LEGEND),
-        vscode.languages.registerDocumentRangeSemanticTokensProvider(combined, provider, LEGEND),
         vscode.window.registerWebviewViewProvider(
             ColorPickerViewProvider.viewType,
             colorPickerViewProvider,
@@ -120,20 +92,13 @@ export function activate(context: vscode.ExtensionContext): void {
             await maybeShowSidebarHint();
             await vscode.commands.executeCommand('xmlDocColor.colorPicker.focus');
         }),
-        vscode.commands.registerCommand('xmlDocColor.toggleEnabled', async () => {
-            const document = activeDocument();
-            const config = vscode.workspace.getConfiguration('xmlDocColor', document);
-            const current = config.get<boolean>('enabled', true);
-            await config.update('enabled', !current, getConfigurationTarget());
-            provider.refresh();
-            updateStatusItem();
-        }),
         vscode.commands.registerCommand('xmlDocColor.copyThemeRules', async () => {
             const document = activeDocument();
             const language = document && isSupportedDocument(document) ? document.languageId : '*';
-            const json = getThemeCustomizationSnippet(readColors(language), language);
-            await vscode.env.clipboard.writeText(json);
-            await vscode.window.showInformationMessage('XML Doc Color: customization JSON copied to clipboard.');
+            await vscode.env.clipboard.writeText(
+                getThemeCustomizationSnippet(readColors(language), language),
+            );
+            await vscode.window.showInformationMessage('XML Doc Color: TextMate customization JSON copied.');
         }),
         vscode.commands.registerCommand('xmlDocColor.openThemeSnippet', async () => {
             const document = activeDocument();
@@ -149,12 +114,14 @@ export function activate(context: vscode.ExtensionContext): void {
             updateStatusItem();
             colorPickerViewProvider.refresh();
         }),
+        vscode.window.onDidChangeActiveColorTheme(() => {
+            colorPickerViewProvider.refresh();
+        }),
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (
-                event.affectsConfiguration('xmlDocColor') ||
-                event.affectsConfiguration('editor.semanticTokenColorCustomizations')
+                event.affectsConfiguration('xmlDocColor')
+                || event.affectsConfiguration('editor.tokenColorCustomizations')
             ) {
-                provider.refresh();
                 updateStatusItem();
                 colorPickerViewProvider.refresh();
             }
@@ -164,6 +131,9 @@ export function activate(context: vscode.ExtensionContext): void {
     updateStatusItem();
 }
 
-export function deactivate(): void {
-    // Nothing to clean up explicitly.
+/** No runtime resources exist outside the disposables owned by the context. */
+export function deactivate(): void {}
+
+function formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
